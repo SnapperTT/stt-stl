@@ -1,0 +1,114 @@
+#hdr
+#ifndef STT_PAGE_HEADER_SIZE
+	#define STT_PAGE_HEADER_SIZE 64
+#endif
+#ifndef STT_PAGE_SIZE
+	#define STT_PAGE_SIZE 4096
+#endif
+#ifndef STT_JUMBO_PAGE_SIZE
+	#define STT_JUMBO_PAGE_SIZE 65536
+#endif
+
+namespace stt {
+	union pageI;
+	class pageAllocatorI;
+	}
+	
+#end
+
+#src
+
+namespace stt {
+	static_assert(sizeof(pageHeader) <= STT_PAGE_HEADER_SIZE);
+	}
+#end
+
+// A page is a fixed size block of memory
+// the idea is that pages are allocated once then recycled
+
+namespace stt {
+	union pageI;
+	
+	enum pageType {
+		PAGE_TYPE_NORMAL,
+		PAGE_TYPE_JUMBO
+		};
+	
+	struct pageHeader {
+		// note: not all fields are used!
+		pageAllocatorI* allocator;	// what object controls the lifetime of this?
+		pageHeader* next;			  // next page
+		pageHeader* cachedWorkingEnd; // (optional) if this is the head of a linked list then this is the end page, otherwise this is undefiend
+		uint32_t localSize;			  // (optional) if this page is an array then this is the local size of the array
+		uint32_t totalSize;			  // (optional) if this is the head of a linked list of arrays then this is the running total
+		uint64_t useMask;			  // (optional) if this page is an bitmap then this is indicates which elements are used 
+		uint64_t _unused[3];
+		
+		inline void initToZero() {
+			allocator = NULL;
+			next = NULL;
+			cachedWorkingEnd = NULL;
+			localSize = 0;
+			totalSize = 0;
+			useMask = 0;
+			}
+		
+		inline pageAllocatorI* wrangleAllocator() const {
+			return allocator ? allocator : ???;
+			}
+			
+		pageHeader* allocatePageAndInitToZero(const uint64_t pageSize) const {
+			pageAllocatorI* a = wrangleAllocator();
+			pageHeader* r = a->allocatePage(pageSize);
+			r->initToZero();
+			r->allocator = a;
+			return r;
+			}
+		
+		pageHeader* end() {
+			// manually traverses to the end
+			pageHeader* w = this;
+			while (w->next) { w = w->next; }
+			return w;
+			}
+			
+		pageHeader* endCounting(int& countOut) {
+			// manually traverses to the end, counts number of pages
+			pageHeader* w = this;
+			while (w->next) { countOut++; w = w->next; }
+			return w;
+			}
+		};
+		
+	union pageI {
+		pageHeader ph;
+		uint8_t _data[STT_PAGE_SIZE];
+		
+		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
+		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
+		static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
+		static STT_CONSTEXPR__pageTypeEnum getPageType() const { return pageTypeEnum::PAGE_TYPE_NORMAL; }
+		};
+		
+	union jumboPageI {
+		pageHeader ph;
+		uint8_t _data[STT_JUMBO_PAGE_SIZE];
+		
+		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
+		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
+		static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
+		static STT_CONSTEXPR__pageTypeEnum getPageType() const { return pageTypeEnum::PAGE_TYPE_JUMBO; }
+		};
+		
+	
+	//template <unsigned int USZ>
+	//union unboundedPageI {
+	//	pageHeader ph;
+	//	uint8_t _data[USZ];
+	//	
+	//	STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
+	//	const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
+	//	static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
+	//	};
+
+	}

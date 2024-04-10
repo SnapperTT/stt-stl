@@ -1,0 +1,816 @@
+#hdr
+
+//#define STT_STRING_TYPE_TEMPLATE_DECL  class STRING_TYPE, typename std::enable_if<std::has_cstr<STRING_TYPE>{}, bool>::type = true
+//#define STT_STRING_TYPE_TEMPLATE_DECL  class STRING_TYPE, typename std::enable_if<std::is_member_function_pointer<decltype(&(STRING_TYPE::c_str))>{}, bool>::type = true
+//#define STT_STRING_TYPE_TEMPLATE_DECL  class STRING_TYPE, typename std::enable_if<stt::is_string_class<STRING_TYPE>::value, bool>::type = true
+
+
+#define STT_STRING_TYPE_TEMPLATE_DECL            class STRING_TYPE, typename std::enable_if<stt::is_string_or_string_view_type<STRING_TYPE>::value, bool>::type = true
+#define STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER  class STRING_TYPE, typename std::enable_if<stt::is_string_or_string_view_type_and_not_stt_string<STRING_TYPE>::value, bool>::type = true
+#define STT_STRING_TYPE_TEMPLATE_DECL2           class STRING_TYPE, class STRING_TYPE2, typename std::enable_if<stt::is_string_or_string_view_type<STRING_TYPE>::value, bool>::type = true, typename std::enable_if<stt::is_string_or_string_view_type<STRING_TYPE2>::value, bool>::type = true
+             
+             
+//#include <iterator>
+namespace stt {
+	// Has_c_str
+	// Templates use c_str() method detection to determine if a passed objecet is some kind of string
+	
+	template <typename T> auto has_c_str_impl(int) -> decltype(std::declval<T>().c_str(), std::true_type{});
+	template <typename T> auto has_c_str_impl(...) -> std::false_type;
+	template <typename T>
+	using has_c_str = decltype(has_c_str_impl<T>(0));
+	
+	template <typename T> auto has_substr_impl(int) -> decltype(std::declval<T>().substr(), std::true_type{});
+	template <typename T> auto has_substr_impl(...) -> std::false_type;
+	template <typename T>
+	using has_substr = decltype(has_substr_impl<T>(0));
+	
+	template <typename T> auto not_has_stt_sbt_function_tag_impl(int) -> decltype(std::declval<T>().stt_sbt_function_tag(), std::false_type{});
+	template <typename T> auto not_has_stt_sbt_function_tag_impl(...) -> std::true_type;
+	template <typename T>
+	using not_has_stt_sbt_function_tag = decltype(not_has_stt_sbt_function_tag_impl<T>(0));
+	
+	template <typename T>
+	using is_string_or_string_view_type = std::disjunction<stt::has_c_str<T>, stt::has_substr<T>>;
+	
+	template <typename T>
+	using is_string_or_string_view_type_and_not_stt_string = std::conjunction<stt::not_has_stt_sbt_function_tag<T>, std::disjunction<stt::has_c_str<T>, stt::has_substr<T>> >;
+
+	// Stringview alias
+	using string_view = std::string_view;
+#if __cplusplus >= 202002L
+	using weak_ordering = std::weak_ordering;
+#endif
+	//using span = std::span;
+	
+	
+	template <unsigned int N, typename SSO_SIZE_T>
+	class string_base_traits;
+	
+	template <unsigned int N>
+	using string_base = string_base_traits<N, uint8_t>;
+	
+	using string24 = string_base<24>; // warning: vector24 will alias if capacity > (2^24-1)
+	using string32 = string_base<32>;
+	using string64 = string_base<64>;
+	using string128 = string_base<128>;
+	using string252 = string_base<252>; // 252 + room for an int
+	
+	
+	template <unsigned int N, typename SSO_SIZE_T>
+	class string_base_traits : public vector_base_traits<char, stt::sso_null_terminated_pod_tag, N, SSO_SIZE_T, false> {
+	public:
+		using base_type = vector_base_traits<char, stt::sso_null_terminated_pod_tag, N, SSO_SIZE_T, false>;
+		using iterator = typename base_type::iterator;
+		using const_iterator = typename base_type::const_iterator;
+		using reference      = typename base_type::reference;
+		using const_reference = typename base_type::const_reference;
+		using reverse_iterator =  typename base_type::reverse_iterator;
+		using const_reverse_iterator = typename base_type::const_reverse_iterator;
+	
+		static const string_size_t npos = -1;
+		inline char* stt_sbt_function_tag() { return NULL; } // used for template detection
+		
+		// ============================
+		// Constructors
+		
+		inline string_base_traits()  noexcept : base_type() {}
+		
+		inline string_base_traits(allocatorI* alloc) noexcept : base_type() { this->sso.setAllocator(alloc); }
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits(const STRING_TYPE& s) noexcept {
+			this->sso.init();
+			this->append(s.data(), s.size());
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits(const STRING_TYPE& str, const string_size_t pos, const string_size_t len = npos) noexcept {
+			this->sso.init();
+			this->append(str, pos, len);
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits(STRING_TYPE&& s) noexcept {
+			//printf("moveConstruct %s, [%s]\n", __PRETTY_FUNCTION__, s.c_str());
+			this->sso.init();
+			move_assign(std::move(s));
+			}
+			
+		string_base_traits(const char* s) noexcept {
+			this->sso.init();
+			this->append(s);
+			}
+			
+		string_base_traits(const char* s, const string_size_t n) noexcept {
+			this->sso.init();
+			this->append(s, n);
+			}
+			
+		string_base_traits(const string_size_t n, const char c) noexcept {
+			this->sso.init();
+			this->append(n, c);
+			}
+		
+		template<typename Iter>
+		string_base_traits(Iter first, Iter last) noexcept {
+			this->sso.init();
+			this->append((string_base_traits::const_iterator*) first, last - first);
+			}
+		
+		// ============================
+		// Utility
+		
+		inline const char* c_str() const noexcept { return (const char*) this->sso.data(); }
+		inline string_view to_string_view() const noexcept { return string_view(this->data(), this->size()); }
+		inline string_base_traits substr (const string_size_t pos = 0, const string_size_t len = npos) const { return string_base_traits(*this, pos, len); }
+		
+		string_size_t copy (char* s, string_size_t len, string_size_t pos = 0) const {
+			const string_size_t sz = this->size();
+			if (pos >= sz) { stt::error::array_out_of_bounds(pos, sz); return 0; }
+			string_size_t len2 = len;
+			if (len2 > sz + pos)
+				len2 = sz - pos;
+			stt_memcpy((uint8_t*) s, (uint8_t*) &this->data()[pos], len2);
+			return len2;
+			}
+		
+		
+		// ============================
+		// Find
+		// Rather than implementing this per type, just cast to string_view and use the already implemented functions
+		
+		// find
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_size_t find(const STRING_TYPE& str, const string_size_t pos = 0) const noexcept {
+			return to_string_view().find(string_view(str.data(), (size_t) str.size()), pos);
+			}
+		inline string_size_t find (const char* s, const string_size_t pos = 0)                       const { return to_string_view().find(s, pos); }
+		inline string_size_t find (const char* s, const string_size_t  pos, const string_size_t  n) const { return to_string_view().find(s, pos, n); }
+		inline string_size_t find (char c, const string_size_t  pos = 0)              const noexcept { return to_string_view().find(c, pos); }
+				
+		// find_first_not_of
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_size_t find_first_not_of (const STRING_TYPE& str, const string_size_t pos = 0) const noexcept { 
+			return to_string_view().find_first_not_of(string_view(str.data(), str.size()), pos);
+			}
+		inline string_size_t find_first_not_of (const char* s, const string_size_t pos = 0)                     const { return to_string_view().find_first_not_of(s, pos); }
+		inline string_size_t find_first_not_of (const char* s, const string_size_t pos, const string_size_t n) const { return to_string_view().find_first_not_of(s, pos, n); }
+		inline string_size_t find_first_not_of (char c, const string_size_t pos = 0)                   const noexcept { return to_string_view().find_first_not_of(c, pos); }
+	
+		// find_first_of
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_size_t find_first_of (const STRING_TYPE& str, const string_size_t pos = 0) const noexcept { 
+			return to_string_view().find_first_of(string_view(str.data(), str.size()), pos);
+			}
+		inline string_size_t find_first_of (const char* s, const string_size_t pos = 0)                     const { return to_string_view().find_first_of(s, pos); }
+		inline string_size_t find_first_of (const char* s, const string_size_t pos, const string_size_t n) const { return to_string_view().find_first_of(s, pos, n); }
+		inline string_size_t find_first_of (char c, const string_size_t pos = 0)                   const noexcept { return to_string_view().find_first_of(c, pos); }
+		
+		// find_last_not_of
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_size_t find_last_not_of (const STRING_TYPE& str, const string_size_t pos = npos) const noexcept { 
+			return to_string_view().find_last_not_of(string_view(str.data(), str.size()), pos);
+			}
+		inline string_size_t find_last_not_of (const char* s, const string_size_t pos = npos)                  const { return to_string_view().find_last_not_of(s, pos); }
+		inline string_size_t find_last_not_of (const char* s, const string_size_t pos, const string_size_t n) const { return to_string_view().find_last_not_of(s, pos, n); }
+		inline string_size_t find_last_not_of (char c, const string_size_t pos = npos)                const noexcept { return to_string_view().find_last_not_of(c, pos); }
+		
+		// find_last_not_of
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_size_t find_last_of (const STRING_TYPE& str, const string_size_t pos = npos) const noexcept { 
+			return to_string_view().find_last_of(string_view(str.data(), str.size()), pos);
+			}
+		inline string_size_t find_last_of (const char* s, const string_size_t pos = npos)                  const { return to_string_view().find_last_of(s, pos); }
+		inline string_size_t find_last_of (const char* s, const string_size_t pos, const string_size_t n) const { return to_string_view().find_last_of(s, pos, n); }
+		inline string_size_t find_last_of (char c, const string_size_t pos = npos)                const noexcept { return to_string_view().find_last_of(c, pos); }
+		
+		
+		// ============================
+		// rfind
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_size_t rfind (const STRING_TYPE& str, const string_size_t pos = npos) const noexcept {
+			return to_string_view().rfind(string_view(str.data(), str.size()), pos);
+			}
+		
+		inline string_size_t rfind (const char* s, const string_size_t pos = npos) const                 { return to_string_view().rfind(s, pos); }
+		inline string_size_t rfind (const char* s, const string_size_t pos, const string_size_t n) const { return to_string_view().rfind(s, pos, n); }
+		inline string_size_t rfind (char c, const string_size_t pos = npos) const noexcept               { return to_string_view().rfind(c, pos); }
+		
+		// ============================
+		// Compare
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline int compare (const STRING_TYPE& str) const noexcept {
+			return to_string_view().compare(0, str.size(), str.data());
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline int compare (const string_size_t pos, const string_size_t len, const STRING_TYPE& str) const {
+			return to_string_view().compare(pos, len, str.data(), str.size());
+			}
+
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline int compare (const string_size_t pos, const string_size_t len, const STRING_TYPE & str, const string_size_t subpos, const string_size_t sublen) const {
+			return to_string_view().compare(pos, len, string_view(str.data(), str.size()), subpos, sublen);
+			}
+		
+		inline int compare (const char* s) const { return to_string_view().compare(0, npos, s);  }	
+		inline int compare (const string_size_t pos, const string_size_t len, const char* s) const                         { return to_string_view().compare(pos, len, s);    }
+		inline int compare (const string_size_t pos, const string_size_t len, const char* s, const string_size_t n) const { return to_string_view().compare(pos, len, s, n); }
+
+		// ============================
+		// Insert
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& insert (const string_size_t pos, const STRING_TYPE& str) {
+			const char* src = str.data();
+			base_type::insert(this->begin() + pos, src, src + str.size());
+			return *this;
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& insert (const string_size_t pos, const STRING_TYPE& str, const string_size_t subpos, const string_size_t sublen = npos){
+			const char* src = str.data();
+			base_type::insert(this->begin() + pos, src + subpos, src + subpos + sublen);
+			return *this;
+			}
+		
+		string_base_traits& insert (const string_size_t pos, const char* s) {
+			base_type::insert(this->begin() + pos, s, s + stt_strlen(s));
+			return *this;
+			}
+		
+		string_base_traits& insert (const string_size_t pos, const char* s, const string_size_t n) {
+			base_type::insert(this->begin() + pos, s, s + n);
+			return *this;
+			}
+			
+		string_base_traits& insert (const string_size_t pos, const string_size_t n, const char c) {
+			base_type::insert(this->begin() + pos, n, c);
+			return *this;
+			}
+			
+		iterator insert (const_iterator p, const string_size_t n, const char c) {
+			const string_size_t idx = p - this->cbegin();
+			base_type::insert(this->begin() + idx, n, c);
+			return this->begin() + idx;
+			}
+		
+		iterator insert (const_iterator p, char c) {
+			const string_size_t idx = p - this->cbegin();
+			base_type::insert(this->begin() + idx, 1, c);
+			return this->begin() + idx;
+			}
+			
+		string_base_traits& insert (const_iterator p, const char* first, const char* last) {
+			const string_size_t idx = p - this->cbegin();
+			base_type::insert(this->begin() + idx, first, last);
+			return *this;
+			}
+
+		// ============================
+		// Erase
+		string_base_traits& erase (string_size_t pos = 0, string_size_t len = npos) {
+			iterator b = this->begin();
+			string_size_t sz = this->size();
+			if (len > sz - pos) len = sz - pos;
+			base_type::erase(b + pos, b + pos + len);
+			return *this;
+			}
+			
+		inline iterator erase (const_iterator p) {
+			iterator b = this->begin();
+			return base_type::erase(b + (p-b));
+			}
+			
+		inline iterator erase (const_iterator first, const_iterator last) {
+			iterator b = this->begin();
+			return base_type::erase(b + (first-b), b + (last-b));
+			}
+		
+		// ============================
+		// Replace
+protected:
+		void replace_worker_resize (const string_size_t pos, const string_size_t len, const string_size_t n) {
+			iterator ptr = this->begin();
+			if (len > n) {
+				// remove excess chars
+				base_type::erase(ptr + pos, ptr + pos + (len - n)); 
+				}
+			else {
+				// insert dummy chars
+				base_type::insert(ptr + pos, n - len, char(0));
+				}
+			}
+			
+		string_base_traits& replace_worker (const string_size_t pos, const string_size_t len, const char* first, const string_size_t n) {
+			replace_worker_resize(pos, len, n);
+			stt_memcpy((uint8_t*) this->begin() + pos, (uint8_t*) first, n);
+			return *this;
+			}
+		
+		string_base_traits& replace_worker_fill (const string_size_t pos, const string_size_t len, const string_size_t n, const char c) {
+			replace_worker_resize(pos, len, n);
+			stt_memset((uint8_t*) this->begin() + pos, c, n);
+			return *this;
+			}
+		
+public:
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& replace (const string_size_t pos, const string_size_t len, const STRING_TYPE & str) {
+			return replace_worker(pos, len, str.data(), str.size());
+			}
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& replace (const_iterator i1, const_iterator i2, const STRING_TYPE& str) {
+			return replace_worker (i1 - this->cbegin(), i2 - i1, str.data(), str.size());
+			}
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& replace (const string_size_t pos, const string_size_t len, const STRING_TYPE& str, string_size_t subpos, string_size_t sublen = npos) {
+			if (subpos > str.size()) subpos = str.size();
+			if (sublen > str.size() - subpos) sublen = str.size() - subpos;
+			return replace_worker(pos, len, str.data() + subpos, sublen);
+			}
+
+		string_base_traits& replace (const string_size_t pos, const string_size_t len, const char* s) {
+			return replace_worker(pos, len, s, stt_strlen(s));
+			}
+			
+		string_base_traits& replace (const string_size_t pos, const string_size_t len, const char* s, const string_size_t n) {
+			return replace_worker(pos, len, s, n);
+			}
+
+		string_base_traits& replace (const_iterator i1, const_iterator i2, const char* s) {
+			return replace_worker (i1 - this->cbegin(), i2 - i1, s, stt_strlen(s));
+			}
+			
+		string_base_traits& replace (const_iterator i1, const_iterator i2, const char* s, const string_size_t n) {
+			return replace_worker (i1 - this->cbegin(), i2 - i1, s, n);
+			}
+			
+		string_base_traits& replace (const string_size_t pos, const string_size_t len, const string_size_t n, const char c) {
+			return replace_worker_fill(pos, len, n, c);
+			}
+		
+		string_base_traits& replace (const_iterator i1, const_iterator i2, const string_size_t n, const char c) {
+			return replace_worker_fill(i1 - this->cbegin(), i2 - i1, n, c);
+			}
+		
+		// ============================
+		// Assign
+		template <unsigned int N2, typename SSO_SIZE_T2>
+		string_base_traits& assign (string_base_traits<N2,SSO_SIZE_T2>&& other) noexcept {
+			//printf("move assign %s, [%s]\n", __PRETTY_FUNCTION__, str.c_str());
+			move_assign(std::move(other));
+			return *this;
+			}
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& assign (const STRING_TYPE& str) noexcept {
+			//printf("copy assign %s, [%s]\n", __PRETTY_FUNCTION__, str.c_str());
+			this->sso.clear();
+			return this->append (str);
+			}
+			
+		string_base_traits& assign (const char* str) noexcept {
+			this->sso.clear();
+			return this->append (str);
+			}
+			
+		string_base_traits& assign (const char* str, const string_size_t len) noexcept {
+			this->sso.clear();
+			return this->append (str, len);
+			}
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& assign (const STRING_TYPE& str, const string_size_t pos, const string_size_t len = npos) noexcept {
+			this->sso.clear();
+			return this->append (str, pos, len);
+			}
+			
+		string_base_traits& assign (const string_size_t len, const char c) {
+			this->sso.clear();
+			return append_impl(0, len, c);
+			}
+			
+		string_base_traits& assign(const char * first, const char * last) {
+			return assign(first, last - first);
+			}
+			
+		// ============================
+		// Append
+		
+		string_base_traits& append_impl (const string_size_t thisSz, const string_size_t len, const char c) noexcept {
+			uint8_t* ptr = this->sso.reserve(thisSz + len, len);
+			stt_memset(ptr, c, len);
+			ptr[len] = 0;
+			return *this;
+			}
+			
+		template <unsigned int N2, typename SSO_SIZE_T2>
+		string_base_traits& append (string_base_traits<N2,SSO_SIZE_T2>&& other) noexcept {
+			if (this->empty()) {
+				move_assign(std::move(other));
+				return *this;
+				}
+			return append(other.data(), other.size());
+			}
+			
+		//template <STT_STRING_TYPE_TEMPLATE_DECL>
+		//string_base_traits& append (STRING_TYPE&& str) noexcept {
+		//	//printf("move append %s, [%s]\n", __PRETTY_FUNCTION__, str.c_str());
+		//	if (this->empty())
+		//		return assign(std::move(str));
+	//		return append(str.data(), str.size());
+	//		}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& append (const STRING_TYPE& str) noexcept {
+			return append(str.data(), str.size());
+			}
+		
+		string_base_traits& append (const char* str) noexcept {
+			return append(str, stt_strlen(str));
+			}
+			
+		string_base_traits& append (const char* str, const string_size_t len) noexcept {
+			// this is the thing that actually does the appending
+			base_type::batch_append_copy(str, len);
+			return *this;
+			}
+			
+		string_base_traits& append (const string_size_t len, const char c) noexcept {
+			append_impl(this->size(), len, c);
+			return *this;
+			}
+			
+		//template <typename STRING_TYPE, std::enable_if_t<std::is_same<typename STRING_TYPE::value_type, char>::value, bool> = true >
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& append (const STRING_TYPE& str, const string_size_t pos, const string_size_t len = -1) noexcept {
+			append_substr(str.data(), str.size(), pos, len);
+			return *this;
+			}
+			
+		string_base_traits& append(const char * first, const char * last) {
+			return append(first, last - first);
+			}
+			
+protected:
+		void append_substr (const char* str, const string_size_t srclen, const string_size_t pos, const string_size_t len = -1) noexcept {
+			string_size_t len2 = len;
+			if (len > srclen - pos)
+				len2 = (srclen - pos);
+			append (&str[pos], len2);
+			}
+public:
+			
+		// ============================
+		// Operators
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& operator = (const STRING_TYPE & other) noexcept {
+			assign(other.data(), other.size());
+			return *this;
+			}
+			
+		template <unsigned int N2, typename SSO_SIZE_T2>
+		string_base_traits& operator = (string_base_traits<N2,SSO_SIZE_T2>&& other) noexcept {
+			move_assign(std::move(other));
+			return *this;
+			}
+
+		template <unsigned int N2, typename SSO_SIZE_T2>
+		void move_assign (string_base_traits<N2,SSO_SIZE_T2>&& other) noexcept {
+			// move assign
+			// 0. discard any local heap info
+			// 1. if other is on the heap and cannot fit, transfer pointer
+			// 2. if other is on the heap and can fit, pack into this sso and free heap
+			// 3. else copy other sso to this sso
+			
+			//printf("move assign impl! %i [%s]", other.size(), other.c_str());
+				
+			if (!other.isUsingSso()) {
+				// steal the data
+				if (other.size() > this->sso.local_capcity()) {
+					//printf("stealing store!");
+					if (!this->isUsingSso())
+						this->sso.d.store.deallocate();
+					this->sso.d.store = other.sso.d.store;
+					this->sso.disableSsoFlag();
+					other.sso.set_local_size(0); // disables other store
+					return;
+					}
+				}
+			assign(other.data(), other.size());
+			}
+		
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		void move_assign (STRING_TYPE&& other) noexcept {
+			// For std::string, etc, we cannot swap
+			assign(other.data(), other.size());
+			}
+			
+		string_base_traits& operator = (const char * arr) noexcept {
+			return assign(arr);
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		string_base_traits& operator += (const STRING_TYPE & other) noexcept {
+			return append(other);
+			}
+		string_base_traits& operator += (const char* other) noexcept {
+			return append(other);
+			}
+		string_base_traits& operator += (const char c) noexcept {
+			return append(1, c);
+			}
+			
+		// helper functions for constructing with char/string_view with 1 copy
+		void concat_impl(const char * a, const string_size_t alen, const char * b, const string_size_t blen) noexcept {
+			// assumes that this is empty
+			const string_size_t wantsSize = alen + blen;
+			uint8_t* ptr = this->sso.reserve(wantsSize, wantsSize);
+			stt_memcpy(ptr, (uint8_t*) a, alen);
+			stt_memcpy(&ptr[alen], (uint8_t*) b, blen);
+			ptr[wantsSize] = 0;
+			}
+			
+		void concat_impl(const char a, const char * b, const string_size_t blen) noexcept {
+			// assumes that this is empty
+			const string_size_t wantsSize = blen + 1;
+			uint8_t* ptr = this->sso.reserve(wantsSize, wantsSize);
+			ptr[0] = a;
+			stt_memcpy(&ptr[1], (uint8_t*) b, blen);
+			ptr[wantsSize] = 0;
+			}
+			
+		void concat_impl(const char * b, const string_size_t blen, const char c) noexcept {
+			// assumes that this is empty
+			const string_size_t wantsSize = 1 + blen;
+			uint8_t* ptr = this->sso.reserve(wantsSize, wantsSize);
+			stt_memcpy(ptr, (uint8_t*) b, blen);
+			ptr[blen] = c;
+			ptr[wantsSize] = 0;
+			}
+			
+		// hash support
+		inline size_t hash() const {
+			return stt::hash_function((uint8_t*) this->data(), this->size());
+			}
+		
+		// These need to be defined here otherwise std::equal_to cannot find them
+		inline bool operator == (const string_base_traits & other) const { return to_string_view() == other.to_string_view(); }
+		inline bool operator != (const string_base_traits & other) const { return to_string_view() != other.to_string_view(); }
+		inline bool operator >= (const string_base_traits & other) const { return to_string_view() >= other.to_string_view(); }
+		inline bool operator <= (const string_base_traits & other) const { return to_string_view() <= other.to_string_view(); }
+		inline bool operator > (const string_base_traits & other) const { return to_string_view() > other.to_string_view(); }
+		inline bool operator < (const string_base_traits & other) const { return to_string_view() < other.to_string_view(); }
+		
+		inline operator string_view() const { return to_string_view(); } 
+		};
+	}
+
+
+// std::hash
+template <unsigned int N, typename SSO_SIZE_T>
+struct std::hash<stt::string_base_traits<N,SSO_SIZE_T>> {
+    inline std::size_t operator()(const stt::string_base_traits<N,SSO_SIZE_T>& s) const noexcept {
+		return s.hash();
+		}
+	};
+
+
+// stream support
+template <typename T, unsigned int N, typename SSO_SIZE_T>
+T& operator<< (T& os, const stt::string_base_traits<N,SSO_SIZE_T> & str) {
+	(os << str.to_string_view());
+	return os;
+	}
+
+template <typename T, unsigned int N, typename SSO_SIZE_T>
+T& operator>> (T& is, const stt::string_base_traits<N,SSO_SIZE_T> & str) {
+	(str.assign(is.str()));
+	return is;
+	}
+
+
+// + operators (of which there are many....)
+
+// string operator+ (const string& lhs, const string& rhs);
+// string operator+ (string&&      lhs, string&&      rhs);
+// string operator+ (string&&      lhs, const string& rhs);
+// string operator+ (const string& lhs, string&&      rhs);
+template <unsigned int N, typename SSO_SIZE_T, unsigned int N2, typename SSO_SIZE_T2>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, const stt::string_base_traits<N2,SSO_SIZE_T2>& rhs) {
+	stt::string_base_traits<N,SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs.data(), rhs.size());
+	return r;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, unsigned int N2, typename SSO_SIZE_T2>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (stt::string_base_traits<N,SSO_SIZE_T>&& lhs, stt::string_base_traits<N2,SSO_SIZE_T2>&& rhs) {
+	lhs.append(rhs);
+	return lhs;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, unsigned int N2, typename SSO_SIZE_T2>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (stt::string_base_traits<N,SSO_SIZE_T>&& lhs, const stt::string_base_traits<N,SSO_SIZE_T>& rhs) {
+	lhs.append(rhs);
+	return lhs;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, unsigned int N2, typename SSO_SIZE_T2>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, stt::string_base_traits<N,SSO_SIZE_T>&& rhs) {
+	rhs.insert(0, rhs);
+	return lhs;
+	}
+
+// RHS is stt::string, LHS is any string type
+// string operator+ (const string& lhs, const string& rhs);
+// string operator+ (string&&      lhs, string&&      rhs);
+// string operator+ (string&&      lhs, const string& rhs);
+// string operator+ (const string& lhs, string&&      rhs);
+
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const STRING_TYPE& lhs, const stt::string_base_traits<N,SSO_SIZE_T>& rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs.data(), rhs.size());
+	return r;
+	}
+
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (STRING_TYPE&& lhs, stt::string_base_traits<N,SSO_SIZE_T>&& rhs) {
+	return rhs.insert(0, lhs.data(), lhs.size());
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (STRING_TYPE&& lhs, const stt::string_base_traits<N,SSO_SIZE_T>& rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs.data(), rhs.size());
+	return r;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (const STRING_TYPE& lhs, stt::string_base_traits<N,SSO_SIZE_T>&& rhs) {
+	return rhs.insert(0, lhs.data(), lhs.size());
+	}
+	
+	
+// LHS is stt::string, RHS is any string type
+// string operator+ (const string& lhs, const string& rhs);
+// string operator+ (string&&      lhs, stt::string&&      rhs);
+// string operator+ (string&&      lhs, const string& rhs);
+// string operator+ (const string& lhs, string&&      rhs);
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, const STRING_TYPE& rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs.data(), rhs.size());
+	return r;
+	}
+
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (stt::string_base_traits<N,SSO_SIZE_T>&& lhs, STRING_TYPE&& rhs) {
+	return lhs.append(rhs);
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (stt::string_base_traits<N,SSO_SIZE_T>&& lhs, const STRING_TYPE& rhs) {
+	return lhs.append(rhs);
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T, STT_STRING_TYPE_TEMPLATE_DECL_NOT_OTHER>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, STRING_TYPE&& rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs.data(), rhs.size());
+	return r;
+	}
+
+// char*
+// string operator+ (const string& lhs, const char*   rhs);
+// string operator+ (string&&      lhs, const char*   rhs);
+// string operator+ (const char*   lhs, const string& rhs);
+// string operator+ (const char*   lhs, string&&      rhs);
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const stt::string_base_traits<N,SSO_SIZE_T> & lhs, const char * rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs, stt::stt_strlen(rhs));
+	return r;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (stt::string_base_traits<N,SSO_SIZE_T>&& lhs, const char * rhs) {
+	return lhs.append(rhs);
+	}
+		
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const char * lhs, const stt::string_base_traits<N,SSO_SIZE_T> & rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs, stt::stt_strlen(lhs), rhs.data(), rhs.size());
+	return r;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (const char * lhs, stt::string_base_traits<N,SSO_SIZE_T>&& rhs) {
+	return rhs.insert(0, lhs);
+	}
+	
+// char
+// string operator+ (const string& lhs, char          rhs);
+// string operator+ (string&&      lhs, char          rhs);
+// string operator+ (char          lhs, const string& rhs);
+// string operator+ (char          lhs, string&&      rhs);
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, char rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs.data(), lhs.size(), rhs);
+	return r;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (stt::string_base_traits<N,SSO_SIZE_T>&& lhs, char rhs) {
+	return lhs.append(1, rhs);
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T> operator+ (char lhs, const stt::string_base_traits<N,SSO_SIZE_T>& rhs) {
+	stt::string_base_traits<N, SSO_SIZE_T> r;
+	r.concat_impl(lhs, rhs.data(), rhs.size());
+	return r;
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline stt::string_base_traits<N,SSO_SIZE_T>& operator+ (char lhs, stt::string_base_traits<N,SSO_SIZE_T>&& rhs) {
+	return rhs.insert(0, lhs);
+	}
+
+
+
+// Relational operators
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline bool operator== (const char * lhs, const stt::string_base_traits<N,SSO_SIZE_T>& rhs) {
+	return stt::string_view(lhs, stt::stt_strlen(lhs)) == rhs.to_string_view();
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline bool operator== (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, const char * rhs) {
+	return stt::string_view(rhs, stt::stt_strlen(rhs)) == lhs.to_string_view();
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline bool operator!= (const char * lhs, const stt::string_base_traits<N,SSO_SIZE_T>& rhs) {
+	return stt::string_view(lhs, stt::stt_strlen(lhs)) != rhs.to_string_view();
+	}
+	
+template <unsigned int N, typename SSO_SIZE_T>
+inline bool operator!= (const stt::string_base_traits<N,SSO_SIZE_T>& lhs, const char * rhs) {
+	return stt::string_view(rhs, stt::stt_strlen(rhs)) != lhs.to_string_view();
+	}
+	
+// relational operators
+// ==
+template <STT_STRING_TYPE_TEMPLATE_DECL2>
+inline bool operator==(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+	return stt::string_view(lhs.data(), lhs.size()) == stt::string_view(rhs.data(), rhs.size());
+	}
+
+#if __cplusplus >= 202002L
+	template <STT_STRING_TYPE_TEMPLATE_DECL2>
+	inline auto operator<=>(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+		return stt::string_view(lhs.data(), lhs.size()) <=> stt::string_view(rhs.data(), rhs.size());
+		}
+#else
+	template <STT_STRING_TYPE_TEMPLATE_DECL2>
+	inline bool operator!=(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+		return stt::string_view(lhs.data(), lhs.size()) != stt::string_view(rhs.data(), rhs.size());
+		}
+		
+	template <STT_STRING_TYPE_TEMPLATE_DECL2>
+	inline bool operator<=(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+		return stt::string_view(lhs.data(), lhs.size()) <= stt::string_view(rhs.data(), rhs.size());
+		}
+		
+	template <STT_STRING_TYPE_TEMPLATE_DECL2>
+	inline bool operator>=(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+		return stt::string_view(lhs.data(), lhs.size()) >= stt::string_view(rhs.data(), rhs.size());
+		}
+		
+	template <STT_STRING_TYPE_TEMPLATE_DECL2>
+	inline bool operator<(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+		return stt::string_view(lhs.data(), lhs.size()) < stt::string_view(rhs.data(), rhs.size());
+		}
+		
+	template <STT_STRING_TYPE_TEMPLATE_DECL2>
+	inline bool operator>(const STRING_TYPE & lhs, const STRING_TYPE2 & rhs) noexcept {
+		return stt::string_view(lhs.data(), lhs.size()) > stt::string_view(rhs.data(), rhs.size());
+		}
+#endif
+
+#end
+
+
+#src
+#end
+
+

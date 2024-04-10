@@ -1,0 +1,560 @@
+#hdr
+//#include <iterator>
+
+
+namespace stt {	
+	template<typename V, typename T, unsigned int N>
+	struct vector_ref_impl;
+
+	template <typename T, typename TPOD, unsigned int N, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
+	class vector_base_traits;
+	
+	template<unsigned int A, unsigned int B>
+	struct always_store_test {
+		static constexpr bool value = A >= B ? true : false;
+		};
+	
+	template <typename T, unsigned int N>
+	using vector_base_wrap = vector_base_traits<T, pod_proxy<T>, N, uint8_t, always_store_test<sizeof(T),N-sizeof(uint8_t)>::value>;
+	
+	// Note that we have to extend the class to prevent container-depending-on-incomplete-class issues
+	template <typename T, unsigned int N> 
+	class vector_base : public vector_base_wrap<T,N> {
+		public:
+		using unwrapped_type = vector_base_wrap<T,N>;
+		using vector_base_wrap<T,N>::vector_base_wrap;
+		};
+	
+	// Alternative vector_base for incomplete types
+	// you need to manually specify canUseSso and isPod
+	// can automatically be cast to vector_base<T,N>
+	// will throw static_assert if this is not the same as vector_base<T,N>
+	template <typename T, unsigned int N, bool canUseSso, bool isPod> 
+	using vector_base_forward_compatable_base = vector_base_traits<T,typename std::conditional<isPod, sso_pod_tag, T>::type,N,uint8_t,!canUseSso>;
+	
+	template <typename T, unsigned int N, bool canUseSso, bool isPod> 
+	class vector_base_forward_compatable : public vector_base_forward_compatable_base<T,N,canUseSso,isPod> {
+		public:
+		using unwrapped_type = vector_base_forward_compatable_base<T,N,canUseSso,isPod>;
+		using unwrapped_type::unwrapped_type;
+		inline vector_base<T,N>& v() {
+			static_assert(is_same<unwrapped_type, typename vector_base<T,N>::unwrapped_type>::value);
+			return *((vector_base<T,N>*) this);
+			};
+		inline const vector_base<T,N>& v() const {
+			static_assert(is_same<unwrapped_type, typename vector_base<T,N>::unwrapped_type>::value);
+			return *((vector_base<T,N>*) this);
+			};
+		inline vector_base<T,N>& operator() () { return v(); }
+		inline const vector_base<T,N>& operator() () const { return v(); }
+		};
+		
+	template <typename T>
+	using vector24 = vector_base<T, 24>;
+	template <typename T>
+	using vector32 = vector_base<T, 32>;
+	template <typename T>
+	using vector64 = vector_base<T, 64>;
+	
+	template <typename T, bool canUseSso, bool isPod>
+	using vector_forward24 = vector_base_forward_compatable<T, 24, canUseSso, isPod>;
+	
+			
+	// small_vector - a vector of sso_size of at least NUM_ELEMENTS
+	template <typename T, unsigned int NUM_ELEMENTS, typename SSO_SIZE_T = uint8_t>
+	class small_vector : public vector_base_traits<T, pod_proxy<T>, sizeof(T)*NUM_ELEMENTS + sizeof(SSO_SIZE_T), SSO_SIZE_T, false> {};
+	
+	template <typename T, typename TPOD, unsigned int N, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
+	class vector_base_traits {
+	public:
+		using iterator       = T*;
+		using const_iterator = const T*;
+		using size_type = storage_size_t;
+		using reference      = T&;
+		using const_reference = const T&;
+		using reverse_iterator = stt::reverse_iterator<iterator>;
+		using const_reverse_iterator = stt::reverse_iterator<const_iterator>;
+		typedef T value_type;
+	
+		sso_base<N, TPOD, SSO_SIZE_T, IS_ALWAYS_STORE> sso; //<-- sso should just have reserve and give the write ptr
+
+		// String compatability stuff
+		inline static STT_CONSTEXPR__bool isString() { return stt::is_same<TPOD, sso_null_terminated_pod_tag>::value; }
+		inline static STT_CONSTEXPR__bool isPod() { return stt::is_same<TPOD, sso_null_terminated_pod_tag>::value || stt::is_same<TPOD, sso_pod_tag>::value; }
+		inline void writeNullTerminator(uint8_t* ptr) { if constexpr (isString()) { *ptr = 0; }; }
+
+		// casting
+		//inline vector_ref_impl<vector_base_traits,T,N>& operator ()             { return *((vector_proxy<T,N>*) this); }
+		//inline const vector_ref_impl<vector_base_traits,T,N>& operator () const { return *((vector_proxy<T,N>*) this); }
+
+		// constructor
+		inline vector_base_traits() {}
+		inline ~vector_base_traits() {}
+		
+		inline vector_base_traits(allocatorI * alloc) {
+			sso.init();
+			sso.setAllocator(alloc);
+			}
+			
+		inline vector_base_traits(const vector_base_traits & other) {
+			sso.init();
+			*this = other;
+			}
+		
+		inline vector_base_traits(vector_base_traits__MVSEM other) {
+			sso.init();
+			*this = std::move(other);
+			}
+			
+		inline vector_base_traits(const storage_size_t sz) {
+			sso.init();
+			batch_append_fill(sz);
+			}
+			
+		inline vector_base_traits(const T* first, const T* last) {
+			sso.init();
+			batch_append_copy(first, last - first);
+			}
+			
+		template<typename Iter>
+		inline vector_base_traits(stt::move_iterator<Iter> first, stt::move_iterator<Iter> last) {
+			sso.init();
+			batch_append_move(first.base(), last - first);
+			}
+			
+		inline vector_base_traits(const storage_size_t sz, const T & value) {
+			sso.init();
+			batch_append_fill_value(value, sz);
+			}
+		
+		inline vector_base_traits (initializer_list<T> li) {
+			sso.init();
+			batch_append_copy(li.begin(), li.size());
+			}
+		
+		//template<typename V>
+		//vector_base_traits (initializer_list<V> li) {
+		//	sso.init();
+		//	if (!li.size()) return;
+		//	reserve(li.size());
+		//	auto itt = li.begin();
+		//	for (;itt != li.end(); itt++)
+		//		push_back(T(*itt));
+		//	}
+		
+		vector_base_traits& operator = (const vector_base_traits & other) {
+			//printf("copy construct\n");
+			sso.clear();
+			batch_append_copy(other.data(), other.size());
+			return *this;
+			}
+		
+		vector_base_traits& operator = (vector_base_traits__MVSEM other) {
+			//printf("move construct\n");
+			sso.clear();
+			if ((!other.sso.useSso()) && (other.sso.size() > sso.capacity())) {
+				// Other is using store, just move store variable
+				sso.disableSsoFlag();
+				sso.d.store = other.sso.d.store;
+				other.sso.init(); // reset to an empty container without calling destructors
+				return *this;
+				}
+			batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
+			return *this;
+			}
+			
+			
+
+		void assign (const T* first, const T* last) {
+			sso.clear();
+			batch_append_copy(first, last - first);
+			}
+			
+		void assign (const storage_size_t sz, const T &  value) {
+			sso.clear();
+			batch_append_fill_value(value, sz);
+			}
+			
+		void shrink_to_fit() { sso.shrink_to_fit(); }
+		
+		inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
+		
+		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
+		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
+		
+		inline T& operator []       (const storage_size_t idx) noexcept       { return data()[idx]; }
+		inline const T& operator [] (const storage_size_t idx) const noexcept { return data()[idx]; }
+		
+		inline T* data() noexcept             { return (T*) sso.data(); }
+		inline const T* data() const noexcept { return (const T*) sso.data(); }
+		inline storage_size_t size() const noexcept     { return sso.size()/sizeof(T); }
+		inline uint64_t size_bytes() const noexcept     { return sso.size(); }
+		inline storage_size_t length() const noexcept   { return sso.size()/sizeof(T); }
+		inline storage_size_t capacity() const noexcept { return sso.capacity()/sizeof(T); }
+		inline static STT_CONSTEXPR__storage_size_t max_size() { return decltype(sso)::max_size(); }
+		
+		inline const_iterator cbegin() const noexcept { return const_iterator(data()); }
+		inline const_iterator cend()   const noexcept { return const_iterator(data() + size()); };
+		inline const_iterator begin() const noexcept { return const_iterator(data()); }
+		inline const_iterator end()   const noexcept { return const_iterator(data() + size()); };
+		inline iterator begin() noexcept { return iterator(data()); }
+		inline iterator end()   noexcept { return iterator(data() + size()); }
+		
+		inline reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+		inline reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+		inline const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(cend()); }
+		inline const_reverse_iterator rend() const noexcept { return const_reverse_iterator(cbegin()); }
+		inline const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(cend()); }
+		inline const_reverse_iterator crend() const noexcept { return const_reverse_iterator(cbegin()); }
+		
+		inline bool empty() const { return !sso.size(); }
+		
+		inline T& front()             { return data()[0]; }
+		inline const T& front() const { return data()[0]; }
+		inline T& back()             { return data()[size()-1]; }
+		inline const T& back() const { return data()[size()-1]; }
+		
+		inline void clear() { sso.clear(); writeNullTerminator((uint8_t*) sso.data()); }
+		
+		inline bool isUsingSso()  const { return sso.useSso(); }
+		inline bool isUsingHeap() const { return !sso.useSso(); }
+		
+		void push_back(const T& t) {
+			constexpr storage_size_t stride = sizeof(T);
+			uint8_t* ptr = sso.reserve(sso.size() + stride, stride);
+			
+			new (ptr) T(t); // copy construct in place
+			//*((T*) ptr) = t;
+			
+			writeNullTerminator(ptr+1);
+			}
+			
+		void push_back(T__MVSEM t) {
+			constexpr storage_size_t stride = sizeof(T);
+			uint8_t* ptr = sso.reserve(sso.size() + stride, stride);
+			
+			new (ptr) T(std::move(t)); // move construct in place
+			//*((T*) ptr) = std::move(t);
+			
+			writeNullTerminator(ptr+1);
+			}
+			
+		void pop_back() {
+			const storage_size_t sz = size();
+			if (sz)
+				resize(sz-1);
+			}
+
+protected:
+		void batch_append_copy(const T* begin, const storage_size_t count) {
+			constexpr storage_size_t stride = sizeof(T)/(decltype(sso)::element_size());
+			
+			uint8_t* ptr = sso.reserve(sso.size() + sizeof(T)*count, sizeof(T)*count);
+			sso.copy_elements_in_place(ptr, (const uint8_t*) begin, count*stride);
+			if constexpr (isString()) writeNullTerminator(ptr + count);
+			}
+			
+		void batch_append_move(T* begin, const storage_size_t count) {
+			constexpr storage_size_t stride = sizeof(T)/(decltype(sso)::element_size());
+			
+			uint8_t* ptr = sso.reserve(sso.size() + sizeof(T)*count, sizeof(T)*count);
+			sso.move_elements_in_place(ptr, (uint8_t*) begin, count*stride);
+			if constexpr (isString()) writeNullTerminator(ptr + count);
+			}
+			
+		void batch_append_fill_value(const T & value, const storage_size_t count) {
+			uint8_t* ptr = sso.reserve(sso.size() + sizeof(T)*count, sizeof(T)*count);
+			objectFillRangeValueInPlace((T*) ptr, ((T*) ptr) + count, value);
+			if constexpr (isString()) writeNullTerminator(ptr + count);
+			}
+			
+		void batch_append_fill(const storage_size_t count) {
+			constexpr storage_size_t stride = sizeof(T)/(decltype(sso)::element_size());
+			
+			uint8_t* ptr = sso.reserve(sso.size() + sizeof(T)*count, sizeof(T)*count);
+			sso.fill_elements_in_place(ptr, count*stride);
+			if constexpr (isString()) writeNullTerminator(ptr + count);
+			}
+
+public:
+		void reserve(const storage_size_t sz) {
+			sso.reserve(sizeof(T) * sz);
+			}
+			
+		void resize(const storage_size_t sz) {			
+			sso.resize(sz*sizeof(T));
+			
+			if constexpr (isString()) writeNullTerminator((uint8_t*) end());
+			}
+			
+		void resize_no_zero_initialise(const storage_size_t sz) {
+			// I hope you know what you're doing, do not do this with objects
+			sso.resize(sz*sizeof(T), false);
+			}
+			
+		void resize(const storage_size_t sz, const T&value) {
+			// resize and fill with value if new size is bigger
+			storage_size_t sz_init = size();
+			if (sz > sz_init) {
+				uint8_t* ptr = sso.reserve(sizeof(T) * sz, (sz - sz_init)*sizeof(T));
+				objectFillRangeValueInPlace((T*) ptr, ((T*) ptr) + (sz - sz_init), value);
+				}
+			else
+				sso.resize(sizeof(T)*sz);
+				
+			if constexpr (isString()) writeNullTerminator((uint8_t*) end());
+			}
+			
+		void swap(vector_base_traits & other) {
+			if constexpr (IS_ALWAYS_STORE) {
+				return swap_heap_impl(other);
+				}
+			
+			if (isUsingHeap()) {
+				if (other.isUsingHeap()) {
+					//printf("swap path A\n");
+					// both are using heap, so straight swap of storage data
+					swap_heap_impl(other);
+					}
+				else {
+					//printf("swap path B\n");
+					// execute the below branch with the arguments reversed
+					other.swap2_impl(*this);
+					}
+				}
+			else {
+				//printf("swap path C\n");
+				swap2_impl(other);
+				}
+			}
+
+protected:
+		inline void swap_heap_impl(vector_base_traits & other) {
+			storage stemp = sso.d.store;
+			sso.d.store = other.sso.d.store;
+			other.sso.d.store = stemp;
+			}
+		
+		void swap2_impl (vector_base_traits & other) {
+			// call swap(), not this
+			constexpr storage_size_t stride = (decltype(sso)::element_size());
+					
+			// move this's sso data to a temp buffer
+			const storage_size_t lsz = sso.local_size();
+			uint8_t tmpBuff[sizeof(*this)];
+			sso.move_elements(&tmpBuff[0], &sso.d.sso[0], lsz / stride);
+			
+			//printf("swap2_impl %s\n", __PRETTY_FUNCTION__);
+			//printf("swap2_impl lsz %i, stride %i\n", lsz, stride);
+				
+			// override this with other
+			if (other.isUsingHeap()) {
+				// other is using heap, copy sso to temp. buffer
+				//printf("swap2_impl path A\n");
+				sso.d.store = other.sso.d.store;
+				sso.disableSsoFlag();
+				}
+			else {
+				//printf("swap2_impl path B\n");
+				const storage_size_t olsz = other.sso.local_size();
+				sso.move_elements(&sso.d.sso[0], &other.sso.d.sso[0], olsz / stride);
+				sso.set_local_size(olsz);
+				if constexpr (isString()) writeNullTerminator(&sso.d.sso[olsz]);
+				}
+				
+			// put the temp sso data into temp and switch it to sso mode
+			other.sso.move_elements(&other.sso.d.sso[0], &tmpBuff[0], lsz / stride);
+			other.sso.set_local_size(lsz);
+			if constexpr (isString()) other.writeNullTerminator(&other.sso.d.sso[lsz]);
+			}
+		
+public:
+		iterator erase (iterator where) {
+			// move then call destructor
+			if constexpr (isPod()) {
+				// if pod then just memmove
+				// if not last element then shift back
+				iterator iend = end();
+				if (where < end() - 1)
+					stt_memmove((uint8_t*) where, (uint8_t*) (where+1), (iend - where)*sizeof(T));
+				
+				sso.resize_impl(sso.size()-sizeof(T));
+				if constexpr (isString()) writeNullTerminator((uint8_t*) end());
+				
+				return where;
+				}
+				
+			const_iterator iend = cend();
+			iterator inext = where;
+			inext++;
+			iterator itt = where;
+		
+			// erase this
+			itt->~T();
+			// move in place
+			for (; inext != iend; itt = inext, inext++)
+				new (itt) T(std::move(*inext));
+				
+			sso.resize_impl(sso.size()-sizeof(T), false);
+			return where;
+			}
+			
+		iterator erase (iterator first, iterator last) {
+			const storage_size_t count = (last - first);
+			if constexpr (isPod()) {
+				// if pod then just memmove
+				//printf("ERASE %i, %i %i", size(), first-begin(), last-begin());
+				//assert(last-begin() <= size());
+				
+				iterator iend = end();
+				if (last > iend)
+					last = iend;
+				if (last != iend)
+					stt_memmove((uint8_t*) first, (uint8_t*) last, (iend - last)*sizeof(T));
+				
+				sso.resize_impl(sso.size()-sizeof(T)*count);
+				if constexpr (isString()) writeNullTerminator((uint8_t*) end());
+				
+				return first;
+				}
+				
+			//iterator ibegin = begin();
+			// destroy first
+			for (iterator itt = first; itt != last; ++itt)
+				itt->~T();
+			
+			const_iterator iend = cend();
+			iterator inext = first;
+			inext += count;
+			iterator itt = first;// ibegin + (first - ibegin); // needed for const correctness
+			
+			// move in place
+			for (; inext != iend; itt++, inext++)
+				new (itt) T(std::move(*inext));
+			
+			sso.resize_impl(sso.size()-sizeof(T)*count, false);
+			return first;
+			}
+			
+		iterator insert (iterator where, const T& value) {
+			return insert(where, 1, value);
+			}
+			
+		iterator insert (iterator where, const storage_size_t n, const T& value) {
+			iterator where2 = insert_impl_make_room_sub(where, n); // invalidates where
+			//printf("insert(): after make room but before filling\n");
+			//sso.dbg_dump_row();
+			
+			objectFillRangeValueInPlace(where2, where2 + n, value);
+			
+			return where2;
+			}
+			
+		iterator insert (iterator where, const T* first, const T* last) {
+			// Inserts with copy semantics
+			iterator where2 = insert_impl_make_room_sub(where, last - first); // invalidates where, where->where+(last-first) is now invalid memory
+			insert_impl_copy_sub<true>(where2, first, last);
+			return where2;
+			}
+		
+		template<typename Iter>
+		iterator insert(iterator where, stt::move_iterator<Iter> first, stt::move_iterator<Iter> last) {
+			return insert_move(where, first.base(), last.base());
+			}
+			
+		iterator insert_move (iterator where, T* first, T* last) {
+			// Inserts with move semantics
+			iterator where2 = insert_impl_make_room_sub(where, last - first); // invalidates where, where->where+(last-first) is now invalid memory
+			insert_impl_move_sub<true>(where2, first, last);
+			return where2;
+			}
+
+protected:
+		iterator insert_impl_make_room_sub (iterator where, const storage_size_t count) {
+			// working with itterators is awkward			
+			const storage_size_t idx = where - begin(); // index (in elements)
+			const storage_size_t sz_init = size();      // size (in elements)
+			
+			sso.resize_impl(sizeof(T)*(sz_init + count), false);
+			
+			// move things out of the way
+			iterator ibegin_afterResize = begin();
+			iterator ibegin = ibegin_afterResize + idx;   // position of where in the original array
+			iterator realEnd = ibegin_afterResize + (sz_init + count);
+			
+			
+			if constexpr (isPod()) {
+				iterator dst = ibegin + count;
+				iterator src = ibegin;
+				stt_memmove((uint8_t*) dst, (uint8_t*) src, (sz_init - idx)*sizeof(T));
+				if constexpr (isString()) writeNullTerminator((uint8_t*) realEnd);
+				}
+			else {
+				iterator dst = realEnd - 1;
+				iterator src = dst - count;
+				iterator onePastIBegin = ibegin - 1;
+				
+				for (; src != onePastIBegin; --dst, --src) {
+					//int elemDst = dst - ibegin_afterResize;
+					//int elemSrc = src - ibegin_afterResize;
+					//printf("\tmoving %i -> %i\n", elemSrc, elemDst);
+					*dst = std::move(*src); // src is now undefined
+					}
+				}
+			return ibegin;
+			}
+		
+		template <bool doOverride>
+		void insert_impl_copy_sub (iterator where, const T* first, const T* last) {
+			iterator dst = where;
+			if constexpr (isPod()) {
+				stt_memcpy((uint8_t*) dst, (uint8_t*) first, (last-first)*sizeof(T));
+				//if constexpr (isString()) if (isAppending) writeNullTerminator((uint8_t*) end());		
+				}
+			else {
+				const T* src = first;
+				for (; src != last; src++, dst++) {
+					if constexpr (doOverride)
+						new (dst) T(*src);	// we are overriding invalid memory so we may construct in place
+					else
+						*dst = *src;
+					}
+				}
+			}
+			
+		template <bool doOverride>
+		void insert_impl_move_sub (iterator where, T* first, T* last) {
+			iterator dst = where;
+			if constexpr (isPod()) {
+				stt_memcpy((uint8_t*) dst, (uint8_t*) first, (last-first)*sizeof(T));
+				//if constexpr (isString()) if (isAppending) writeNullTerminator((uint8_t*) end());		
+				}
+			else {
+				T* src = first;
+				for (; src != last; src++, dst++) {
+					if constexpr (doOverride)
+						new (dst) T(std::move(*src));	// we are overriding invalid memory so we may construct in place
+					else
+						*dst = std::move(*src);
+					}
+				}
+			}
+
+public:
+		static const char* dbg_get_class_name() {
+			#if STT_STL_DEBUG
+			return __PRETTY_FUNCTION__;
+			#else
+			return "<stt_stl_vector>";
+			#endif
+			}
+		};
+	}
+	
+#end
+
+
+#src
+#end
+
+

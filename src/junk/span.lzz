@@ -1,0 +1,61 @@
+#hdr
+#ifndef STT_STL_SPAN
+namespace stt {
+	template <typename T, uint64_t __unused = 0>
+	class span {
+	public:
+		using iterator       = T*;
+		using const_iterator = const T*;
+		using size_type = storage_size_t;
+		using reference      = T&;
+		using const_reference = const T&;
+		typedef T value_type;
+		
+		T* m_data;
+		storage_size_t m_size;
+		
+		template <typename R>
+		inline constexpr span(R&& t) : m_data(t.data()), m_size(t.size()) {}
+		template <typename R>
+		inline constexpr span(const R & t) : m_data(t.data()), m_size(t.size()) {}
+		
+		inline constexpr span(T* d, const storage_size_t s) : m_data(d), m_size(s) {}
+		
+		inline constexpr T* data()             { return m_data; }
+		inline constexpr const T* data() const { return m_data; }
+		
+		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= m_size) { stt::error::array_out_of_bounds(idx, m_size); }; return m_data[idx]; }
+		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= m_size) { stt::error::array_out_of_bounds(idx, m_size); }; return m_data[idx]; }
+		
+		inline constexpr T& operator []       (const storage_size_t idx) noexcept       { return m_data[idx]; }
+		inline constexpr const T& operator [] (const storage_size_t idx) const noexcept { return m_data[idx]; }
+		
+		inline constexpr storage_size_t size() const noexcept     { return m_size; }
+		inline constexpr uint64_t size_bytes() const { return m_size*sizeof(T); }
+		inline constexpr storage_size_t length() const noexcept   { return m_size; }
+		
+		inline constexpr const_iterator cbegin() const noexcept { return const_iterator(m_data); }
+		inline constexpr const_iterator cend()   const noexcept { return const_iterator(m_data + m_size); };
+		inline constexpr const_iterator begin() const noexcept { return const_iterator(m_data); }
+		inline constexpr const_iterator end()   const noexcept { return const_iterator(m_data + m_size); };
+		inline constexpr iterator begin() noexcept { return iterator(m_data); }
+		inline constexpr iterator end()   noexcept { return iterator(m_data + m_size); }
+		
+		inline constexpr bool empty() const { return !m_size; }
+		
+		inline constexpr T& front()             { return m_data[0]; }
+		inline constexpr const T& front() const { return m_data[0]; }
+		inline constexpr T& back()             { return m_data[m_size-1]; }
+		inline constexpr const T& back() const { return m_data[m_size-1]; }
+		};
+	}
+#else
+namespace stt {
+	template <typename T, std::size_t Extent = std::dynamic_extent>
+	using span = STT_STL_SPAN<T, Extent>;
+	}
+#endif
+#end
+
+#src
+#end

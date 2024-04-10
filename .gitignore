@@ -1,0 +1,7 @@
+#ignore temp directory
+src/temp/*.cpp
+src/temp/*.hh
+src/temp/*.h2
+
+#ignore compiled binaries
+*xample

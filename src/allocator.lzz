@@ -1,0 +1,122 @@
+#hdr
+namespace stt {
+	class allocatorI;
+	}
+#end
+
+#src
+#end
+
+/*
+=> NEEDS 2 adjacent lookups on read
+# -> replace with single allocator
+-> if ptr to buff, use buff
+-> if fallback allocator, use
+-> else use heap (or fallback allocator)
+
+using stack_allocator() as default allocator avoids virtual function lookup (unless function is bount)
+*/
+
+namespace stt {		
+	// Some notes on allocators:
+	// no exceptions, is something goes wrong then NULL is returned
+	
+	class allocatorI {
+	public:	
+		allocatorI() {}
+		virtual ~allocatorI() {}
+		
+		virtual uint8_t* allocate(const alloc_size_t size__NOEXCEPT) = 0;	// returns the pointer, sets size to the actual size allocated
+		virtual void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT) = 0;
+		virtual bool try_realloc(uint8_t * ptr, const alloc_size_t oldSize, const alloc_size_t newSize__NOEXCEPT) {
+			// tries to resize an allocation, if it cannot be done then returns false
+			// if the allocation is resized then ptr is unchanged
+			return false;
+			}
+		};
+		
+	// wrapper of malloc/free
+	class crt_allocator : public allocatorI {
+	public:
+		static crt_allocator m_static_crt_allocator;
+		
+		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) { return (uint8_t*) stt_malloc(size); }
+		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) { if (ptr) stt_free(ptr); }
+		};
+		
+	// simple bump allocator
+	// usage:
+	// uint8_t buff[128];
+	// stack_allocator foo;
+	// foo.bind(&buff[0], 128); //<-- can now suballocate from this buffer
+	// can have a fallback allocator
+	class bump_allocator : public allocatorI {
+	public:
+		uint8_t* mBuff;
+		alloc_size_t mSize;
+		alloc_size_t mSeek;
+		allocatorI* fallback;
+		
+		inline bump_allocator() : mBuff(NULL), mSize(0), mSeek(0), fallback(NULL) {}
+		void bind(uint8_t* buffer, alloc_size_t bufferSize) {
+			mBuff = buffer;
+			mSize = bufferSize;
+			}
+		
+		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) {
+			if (mSeek + size <= mSize)
+				return &mBuff[mSeek];
+			return fallback ? fallback->allocate(size) : NULL; // bad alloc, out of buffer size
+			}
+			
+		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) {
+			uintptr_t ptrT = (uintptr_t) ptr;
+			uintptr_t begin = (uintptr_t) mBuff;
+			uintptr_t end = begin + mSize;
+			
+			if (ptrT >= begin && ptrT < end) {
+				// belongs to buffer
+				if (ptrT == begin + mSeek - size) {
+					// restore bump
+					mSeek -= size;
+					}
+				return; // deallocating a bump allocator is a no-op
+				}
+			else {
+				if (fallback)
+					fallback->deallocate(ptr, size);
+				}
+			}
+			
+		bool try_realloc(uint8_t * ptr, const alloc_size_t oldSize, const alloc_size_t newSize__NOEXCEPT_OVERRIDE) {
+			uintptr_t ptrT = (uintptr_t) ptr;
+			uintptr_t begin = (uintptr_t) mBuff;
+			uintptr_t end = begin + mSize;
+			
+			if (ptrT >= begin && ptrT < end) {
+				if (ptrT == begin + mSeek - oldSize) {
+					if (mSeek - oldSize + newSize <= mSize) {
+						mSeek += (newSize - oldSize);
+						return true;
+						}
+					}
+				}
+			return false;
+			}
+		};
+	
+	template <unsigned int SIZE>
+	class auto_bump_allocator : public bump_allocator {
+	public:
+		uint8_t buff[SIZE];
+		auto_bump_allocator () : bump_allocator() {
+			bind(&buff[0], SIZE);
+			}
+		};
+			
+	struct defaul_allocator_ctr {
+		static allocatorI* defaultAllocator = &crt_allocator::m_static_crt_allocator;// STT_STL_DEFAULT_ALLOCATOR ;
+		};
+	void setDefaultAllocator(allocatorI* _alloc) { defaul_allocator_ctr::defaultAllocator = _alloc; }
+	allocatorI* getDefaultAllocator() { return defaul_allocator_ctr::defaultAllocator; }
+	}

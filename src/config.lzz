@@ -1,0 +1,52 @@
+#hdr
+// Config for stt-stl
+#include <cstring>	// memcpy, etc
+#include <cstdint>	// uint64_t, etc
+#include <type_traits>	// needed for template stuff
+#include <cstdlib>	// malloc
+#include <utility>	// std::move
+#include <initializer_list> // constructors, etc
+#include <iterator> // std::move_iterator
+
+// For detection of this lib
+#define STT_STL_LIB 1
+
+// Options
+#ifndef STT_STL_DEBUG
+	#define STT_STL_DEBUG 0
+#endif
+#ifndef STT_STL_DEBUG_MEMORY
+	#define STT_STL_DEBUG_MEMORY 0
+#endif
+
+// default allocator macro
+#ifndef STT_STL_DEFAULT_ALLOCATOR
+	#define STT_STL_DEFAULT_ALLOCATOR NULL
+#endif
+
+// Assert
+#ifndef STT_STL_ASSERT
+	#define STT_STL_ASSERT assert
+	#include <assert.h>
+#endif
+
+// Size types
+// define the macro to if you wish to override with your own types
+#ifndef STT_STL_SIZE_TYPES
+	#define STT_STL_SIZE_TYPES
+	namespace stt {
+		typedef uint32_t storage_size_t;
+		typedef uint64_t alloc_size_t;
+		typedef uint64_t string_size_t;
+		}
+#endif
+
+// Span
+// uncomment to use std::span instead of stt::span
+//#define STT_STL_SPAN std::span 
+
+#end
+
+
+#src
+#end

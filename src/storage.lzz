@@ -1,0 +1,118 @@
+#hdr
+#define STT_ARRAY_CAST(_T, _ptr, _idx)  &(((_T*) _ptr)[_idx])
+#end
+
+#src
+static_assert(sizeof(stt::storage) == 16 + sizeof(stt::storage_size_t)*2);
+#end
+
+namespace stt {
+	
+	class storage {
+	// Storage for contigious data
+	public:
+		allocatorI* mAllocator;     // What allocator
+		uint8_t* ptr;               // Pointer to allocated buffer
+		storage_size_t size;        // Used size of buffer (in bytes)
+		storage_size_t capacity;    // Max size of buffer
+		
+		// Must be trivially constructable/destructable
+		
+		inline void initToZero() {
+			ptr = NULL;
+			size = 0;
+			capacity = 0; 
+			mAllocator = NULL;
+			}
+		
+		inline allocatorI* wrangleAllocator() {
+			return mAllocator ? mAllocator : &crt_allocator::m_static_crt_allocator;//stt::getDefaultAllocator();
+			}
+		
+		void setAllocator(allocatorI* alloc) {
+			// You can only set an allocator once as swapping
+			// allocators is undefined behaviour
+			stt_assert(mAllocator != NULL, "Allocator is already set!");
+			mAllocator = alloc;
+			}
+			
+		void deallocate() {
+			wrangleAllocator()->deallocate(ptr, capacity);
+			size = 0;
+			capacity = 0;
+			ptr = NULL;
+			}
+			
+		static storage_size_t calcualteNextCapacity(const storage_size_t currentCapacity, const storage_size_t minNewCapacity, const storage_size_t stride) {
+			// Applies a growth factor to capacity
+			if (minNewCapacity > currentCapacity*2) {
+				return minNewCapacity; 
+				}
+			if (minNewCapacity > currentCapacity) {
+				return currentCapacity*2;
+				}
+			return currentCapacity;
+			}
+		
+		template<typename T>
+		void growCapacity(const storage_size_t wantsCapacityBytes, T* _unused) {
+			if (capacity >= wantsCapacityBytes) return;
+			growCapacity_impl(wantsCapacityBytes, _unused);
+			}
+			
+		template<typename T>
+		void growCapacity_impl(const storage_size_t wantsCapacityBytes, T* _unused) {
+			//printf("growCapacity #1 (%i -> %i)\n", capacity, wantsCapacityBytes);
+			
+			allocatorI * a = wrangleAllocator();
+			if (a->try_realloc(ptr, capacity, wantsCapacityBytes)) {
+				capacity = wantsCapacityBytes;
+				return;
+				}
+			
+			// realloc
+			uint8_t* oldPtr = ptr;
+			ptr = a->allocate(wantsCapacityBytes);
+			if (oldPtr) {
+				T* oldPtrT = (T*) oldPtr;
+				objectMoveRangeInPlace((T*) ptr, oldPtrT, &oldPtrT[size/sizeof(T)]);
+				a->deallocate(oldPtr, capacity);
+				}
+			capacity = wantsCapacityBytes;
+			}
+			
+		inline void growCapacity_impl(const storage_size_t wantsCapacityBytes, sso_null_terminated_pod_tag* _unused) {
+			return growCapacity_impl(wantsCapacityBytes, (sso_pod_tag*) _unused);
+			}
+			
+		void growCapacity_impl(const storage_size_t wantsCapacityBytes, sso_pod_tag* _unused) {
+			//printf("growCapacity #2 (%i -> %i)\n", capacity, wantsCapacityBytes);
+			
+			allocatorI * a = wrangleAllocator();
+			if (a->try_realloc(ptr, capacity, wantsCapacityBytes)) {
+				capacity = wantsCapacityBytes;
+				return;
+				}
+
+			// realloc
+			uint8_t* oldPtr = ptr;
+			ptr = a->allocate(wantsCapacityBytes);
+			if (oldPtr) {
+				stt_memcpy(ptr, oldPtr, size);
+				a->deallocate(oldPtr, capacity);
+				}
+			capacity = wantsCapacityBytes;
+			}
+			
+		template<typename T>
+		inline void shrink_to_fit(T* _unused) {
+			growCapacity_impl(size, (T*) _unused);
+			}
+			
+		void dbg_printf () const {
+			#if STT_STL_DEBUG
+				printf("mAllocator: %lx, ptr: %lx, size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
+			#endif
+			}
+		};
+	}

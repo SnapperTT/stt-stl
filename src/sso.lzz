@@ -1,0 +1,418 @@
+#hdr
+#ifdef STT_STL_DEBUG 
+	#include <bitset>
+#endif
+#end
+
+#src
+#end
+
+//stt::std_allocator alloc;
+//stt::defaultAllocator = &alloc;
+	
+namespace stt {
+	template<unsigned int N, typename T = sso_pod_tag, typename SSO_SIZE_T = uint8_t, bool IS_ALWAYS_STORE = false>
+	class sso_base {
+	public:
+		// *All* trivially copiable objects stored in a sso_base
+		// are stored in sso_base<N, sso_pod_tag>. This is so that
+		// sso_base<24, int> and sso_base<24, some_struct> use the same 
+		// underlying template to reduce template bloat.
+		// Only instantiate types if we *need* copy assignement, etc
+		//
+		// SSO is enabled if the high bit of the last byte is set
+		// used sso sze. The actual size of sso 
+		//
+		// T is `sso_pod_tag` or `sso_null_terminated_pod_tag` then it
+		// will be assumed that this stores rivially copiable objects
+		
+		union sso_u {
+			storage store;
+			uint8_t sso[N]; // 0 -> N-1 = data, N-1 = size+1 or 0 if using 
+			};
+		sso_u d;
+		
+		inline sso_base() { init(); }
+		
+		inline void init() {
+			#if STT_STL_DEBUG_MEMORY
+				// poison this so that null-termination errors
+				// become visible
+				memset(this, 0xbaadf88d, sizeof(*this));
+			#endif
+			
+			if constexpr (isAlwaysStore()) {
+				d.store.initToZero();
+				disableSsoFlag();
+				}
+			else {
+				enableSsoFlag();
+				if constexpr (isNullTerminatedPod())
+					d.sso[0] = 0;
+				}
+			
+			// Asserts:
+			// sso must be bigger than the storage struct otherise ssoSize will alias
+			static_assert(sizeof(storage) <= N); // warning: if sizeof(storage) == N then capacity may alias into sso.size
+			
+			// Local storage is must fit into a SSO_SIZE_T with the high bit set to low
+			static_assert(N <= (1 << (sizeof(SSO_SIZE_T)*8 - 1)));
+			}
+			
+		~sso_base() {
+			destroy_elements();
+			if (!useSso())
+				d.store.deallocate();
+			}
+		
+		void dbg_printf () const {
+			#if STT_STL_DEBUG
+				char buff[1024];
+				dbg_snprintf(buff, 1023);
+				printf("%s", buff);
+				if (!useSso())
+					d.store.dbg_printf();
+			#endif
+			}
+			
+		void dbg_snprintf (char* buff, uint64_t sz) const {
+			#if STT_STL_DEBUG
+				snprintf(buff, sz, "sso_base<%i>: isPod: %b, useSso: %b, sso_size %i, sso_size_bits %s, store_capacity_bits %s, sso_capacity %i, data(): %lx, size(): %i, capacity(): %i \n",
+					element_size(), isPod(), useSso(), local_size(), std::bitset<sizeof(SSO_SIZE_T)*8>(local_size_ref_c()).to_string().c_str(), std::bitset<sizeof(storage_size_t)*8>(d.store.capacity).to_string().c_str(), local_capcity(), (intptr_t) data(), size(), capacity());
+			#endif
+			}
+			
+		void dbg_dump_row () const {
+			#if STT_STL_DEBUG
+			storage_size_t sz = size()/sizeof(int);
+			int* _data = (int*) data();
+			for (storage_size_t i = 0; i < sz; ++i) {
+				printf("%i ", _data[i]);
+				}
+			#endif
+			}
+			
+		void dbg_dump () const {
+			#if STT_STL_DEBUG
+			storage_size_t sz = size()/sizeof(int);
+			int* _data = (int*) data();
+			for (storage_size_t i = 0; i < sz; ++i) {
+				printf("\t%i: %i\n", i, _data[i]);
+				}
+			#endif
+			}
+		
+		// Constexpr stuff
+		inline static STT_CONSTEXPR__bool isPod() { return std::is_same<T, sso_pod_tag>::value || std::is_same<T, sso_null_terminated_pod_tag>::value; }
+		inline static STT_CONSTEXPR__bool isNullTerminatedPod() { return std::is_same<T, sso_null_terminated_pod_tag>::value; }
+		inline static STT_CONSTEXPR__storage_size_t null_termination_padding() { if constexpr (isNullTerminatedPod()) return 1; return 0; }
+		inline static STT_CONSTEXPR__storage_size_t max_size() { return ~(1 << (sizeof(SSO_SIZE_T)*8-1)); }
+		
+		inline static STT_CONSTEXPR__storage_size_t element_size() { return isPod() ? 1 : sizeof(T); }
+		inline static STT_CONSTEXPR__SSO_SIZE_T local_capcity() { return N-sizeof(SSO_SIZE_T)-null_termination_padding(); }	 // Returns sso capacity (in bytes
+		inline static STT_CONSTEXPR__bool isAlwaysStore() { return IS_ALWAYS_STORE; } //sizeof(T) > local_capcity(); -> doesn't work as T is aliased to sso_pod_tag
+		
+		// Aliases for sso_size variable
+		inline STT_CONSTEXPR__SSO_SIZE_T& local_size_ref() { return *((SSO_SIZE_T*) &d.sso[N-sizeof(SSO_SIZE_T)]); }
+		inline const STT_CONSTEXPR__SSO_SIZE_T& local_size_ref_c() const { return *((SSO_SIZE_T*) &d.sso[N-sizeof(SSO_SIZE_T)]); }
+		
+		// High bit mask for sso size. Sso size = (used_size) | (sso_is_enabled flag)
+		inline STT_CONSTEXPR__SSO_SIZE_T sso_size_flag() const { return (1 << (sizeof(SSO_SIZE_T)*8-1)); }
+		
+		// Init
+		inline void enableSsoFlag()  { local_size_ref() = sso_size_flag(); }
+		inline void disableSsoFlag() {
+			// ! This can override store.capacity!
+			if constexpr (N > sizeof(storage))
+				d.sso[N-1] = 0;
+			else
+				local_size_ref() = 0;
+				}
+		
+		
+		inline SSO_SIZE_T local_size() const {
+			// Returns currently used sso size (in bytes)
+			return local_size_ref_c() & ~sso_size_flag();
+			}
+			
+		inline void set_local_size(const storage_size_t sz) {
+			#if STT_STL_DEBUG
+			if constexpr(isAlwaysStore()) {
+				stt_assert(false, "set_local_size while isAlwaysStore true");
+				}
+			#endif
+			local_size_ref() = sz | sso_size_flag();																		
+			}
+		
+		inline bool useSso() const {
+			// Returns if we are using sso (true) or storage (false)
+			if constexpr(isAlwaysStore())
+				return false;
+			if constexpr (N > sizeof(storage))
+				return d.sso[N-1];
+			return d.sso[N-1] & (1 << 7);
+			}
+
+		
+		// Functions
+		inline uint8_t* data() { return useSso() ? &d.sso[0] : d.store.ptr; }
+		inline const uint8_t* data() const { return useSso() ? &d.sso[0] : d.store.ptr; }
+		inline storage_size_t size() const { return useSso() ? local_size() : d.store.size; }
+		inline storage_size_t capacity() const {
+			return useSso() ? local_capcity() : (d.store.capacity - null_termination_padding());
+			}
+			
+		inline void switchToStorage() {
+			if (useSso())
+				switchToStorage_impl(local_size(), NULL);
+			}
+		
+		// Sets a custom allocator for this storage. Note that this disables sso!
+		void setAllocator(allocatorI* alloc) {
+			switchToStorage(local_size(), alloc);
+			d.store.mAllocator = alloc;
+			}
+		
+		void switchToStorage_impl(const storage_size_t wantsCapacityBytes, allocatorI * mAllocator) {
+			storage store2;
+			store2.initToZero();
+			store2.mAllocator = mAllocator;
+			const storage_size_t ck = storage::calcualteNextCapacity(N-1, wantsCapacityBytes + null_termination_padding(), element_size());
+			store2.growCapacity(ck, (T*) NULL);
+					
+			//printf("move elements %lx, %lx, %i:\n", (intptr_t) store2.ptr, (intptr_t) &d.sso[0], local_size()/element_size());
+			move_elements(store2.ptr, &d.sso[0], local_size()/element_size());
+			store2.size = local_size();
+			
+			disableSsoFlag();
+			d.store = store2;
+			
+			//d.store.dbg_printf();
+			//dbg_dump();
+			}
+			
+		void switchToSso_impl() {
+			// switching without checking capacity first is UB
+			#if STT_STL_DEBUG
+			stt_assert(d.store.mAllocator == 0, "allocator null check"); // do not deallocate if not null
+			stt_assert(!isAlwaysStore(), "always store check"); // do not deallocate if not null
+			#endif
+			storage store2 = d.store;
+			move_elements(&d.sso[0], store2.ptr, store2.size/element_size());
+			set_local_size(store2.size);
+			store2.deallocate();
+			}
+		
+		inline uint8_t* reserve_impl_sso(const storage_size_t wantCapacityBytes, const storage_size_t incrSize = 0) {
+			// reserves and moves current size by incrSize bytes. returns the address before incrementing
+			if (wantCapacityBytes <= local_capcity()) {
+				const storage_size_t ls = local_size();
+				uint8_t* r = &d.sso[ls];
+				set_local_size(ls + incrSize);
+				return r;
+				}
+			else {
+				switchToStorage_impl(wantCapacityBytes, NULL);
+				uint8_t* r = &d.store.ptr[d.store.size];
+				d.store.size += incrSize;
+				return r;
+				}
+			}
+		
+		inline uint8_t* reserve_impl_store(const storage_size_t wantCapacityBytes, const storage_size_t incrSize = 0) {
+			const storage_size_t origCapacity = d.store.capacity;
+			if (wantCapacityBytes >= origCapacity) {
+				const storage_size_t ck = storage::calcualteNextCapacity(origCapacity, wantCapacityBytes + null_termination_padding(), element_size());
+				d.store.growCapacity(ck, (T*) NULL);
+				}
+				
+			uint8_t* r = &d.store.ptr[d.store.size];
+			d.store.size += incrSize;
+			return r;
+			}
+
+		uint8_t* reserve(const storage_size_t wantCapacityBytes, const storage_size_t incrSize = 0) {
+			// if incrSize is non-zero then also update the size as well as the capacity
+			// Returns the end of the current data pointer (before updating size)
+			// *does not initialise reserved memory*
+			if (useSso())
+				return reserve_impl_sso(wantCapacityBytes, incrSize);
+			else
+				return reserve_impl_store(wantCapacityBytes, incrSize);
+			}
+			
+		void resize(const uint32_t sizeInBytes) {
+			// note that true capacity 
+			// standard coding convention is that resize(0) should clear and deallocate a buffer
+			if (sizeInBytes == 0)
+				return clearAndDeallocate();
+			resize_impl(sizeInBytes);
+			}
+		
+		void resize_impl(const uint32_t sizeInBytes, const bool tfill = true) {
+			// resizes and does not call destructors
+			//printf("resize impl %i\n", sizeInBytes);
+			
+			if (sizeInBytes > capacity())
+				reserve(sizeInBytes, 0);
+			
+			constexpr bool doFill = true;//stt::requires_fill_on_resize<T>::value;
+			
+			if (useSso()) {
+				const storage_size_t oldSize = doFill ? local_size() : 0;
+				
+				if (sizeInBytes <= local_capcity()) {
+					set_local_size(sizeInBytes);
+					
+					if constexpr (doFill)
+						if (tfill)
+							fill_or_destroy_elements(&d.sso[oldSize], oldSize, sizeInBytes);
+					}
+				else {
+					switchToStorage_impl(sizeInBytes, NULL);
+					
+					if constexpr (doFill)
+						if (tfill)
+							fill_or_destroy_elements(&d.store.ptr[oldSize], oldSize, sizeInBytes);
+					}
+				}
+			else {
+				if constexpr (doFill)
+					if (tfill)
+						fill_or_destroy_elements(&d.store.ptr[d.store.size], d.store.size, sizeInBytes);
+							
+				d.store.size = sizeInBytes;
+				}
+			}
+			
+		void fill_or_destroy_elements(uint8_t* dst, const storage_size_t oldSize, const storage_size_t newSize) {
+			// Dst = data()[oldSize]
+			// oldsize/newsize is in bytes
+			if constexpr (isPod()) {
+				if (newSize > oldSize) {
+					// zero fill
+					stt_memset(dst, 0, (newSize - oldSize));
+					}
+				return;
+				}
+			if (newSize > oldSize) {
+				fill_elements(dst, (newSize - oldSize)/element_size());
+				}
+			else if (oldSize > newSize) {
+				const storage_size_t count = (oldSize - newSize)/element_size();
+				T* start = (T*) dst - count;
+				T* end = (T*) dst;
+				for (T* ptr = start ; ptr != end; ++ptr )
+					ptr->~T();
+				}
+			}
+		
+		
+		void copy_elements(uint8_t* dst, const uint8_t* src, const storage_size_t num_elements_or_bytes) {
+			// note: if this is pod you need to pass *bytes* not num_elements
+			if constexpr (isPod())
+				stt_memcpy(dst, src, num_elements_or_bytes);
+			else
+				objectCopyRange((T*) dst, (const T*) src, ((const T*) src) + num_elements_or_bytes);
+			}
+		
+		void copy_elements_in_place(uint8_t* dst, const uint8_t* src, const storage_size_t num_elements_or_bytes) {
+			// will override objects
+			if constexpr (isPod())
+				stt_memcpy(dst, src, num_elements_or_bytes);
+			else
+				objectCopyRangeInPlace((T*) dst, (const T*) src, ((const T*) src) + num_elements_or_bytes);
+			}
+		
+		void move_elements(uint8_t* dst, uint8_t* src, const storage_size_t num_elements_or_bytes) {
+			// not in-place move
+			if constexpr (isPod())
+				stt_memcpy(dst, src, num_elements_or_bytes);
+			else 
+				objectMoveRange((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
+			}
+			
+		void move_elements_in_place(uint8_t* dst, uint8_t* src, const storage_size_t num_elements_or_bytes) {
+			// not in-place move
+			if constexpr (isPod())
+				stt_memcpy(dst, src, num_elements_or_bytes);
+			else 
+				objectMoveRangeInPlace((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
+			}
+			
+		void fill_elements(uint8_t* dst, const storage_size_t num_elements_or_bytes) {
+			if constexpr (isPod())
+				stt_memset(dst, 0, num_elements_or_bytes);
+			else 
+				objectFillRange((T*) dst, ((T*) dst) + num_elements_or_bytes);
+			}
+			
+		void fill_elements_in_place(uint8_t* dst, const storage_size_t num_elements_or_bytes) {
+			if constexpr (isPod())
+				stt_memset(dst, 0, num_elements_or_bytes);
+			else 
+				objectFillRangeInPlace((T*) dst, ((T*) dst) + num_elements_or_bytes);
+			}
+		
+		
+		inline void destroy_elements() {
+			// Only generate function destroy_elements_impl() if not pod
+			if constexpr (!isPod())
+				destroy_elements_impl();
+			}
+			
+		void destroy_elements_impl() {
+			if constexpr (!isPod()) {
+				T* tptr = (T*) data();
+				const storage_size_t _size = size() / element_size();
+				for (storage_size_t i = 0; i < _size; ++i)
+					tptr[i].~T();
+				}
+			}
+		
+		void clear() {
+			// marks buffer as empty
+			destroy_elements();
+			
+			if (useSso() && !isAlwaysStore())
+				set_local_size(0);
+			else
+				d.store.size = 0;
+			}
+			
+		void clearAndDeallocate() {
+			// marks buffer as empty
+			destroy_elements();
+			
+			if (!useSso()) {
+				d.store.deallocate();
+				if (d.store.mAllocator) {
+					d.store.size = 0;
+					d.store.capacity = 0;
+					return;
+					}
+				if (isAlwaysStore())
+					return; // return to prevent falling though and switching to Store
+				}
+			set_local_size(0);
+			}
+			
+		void shrink_to_fit() {
+			if (useSso()) return; // sso - cannot be shrunk
+			if (d.store.size <= local_capcity() && !isAlwaysStore()) {
+				// switch back to sso
+				if (d.store.mAllocator)
+					d.store.shrink_to_fit((T*) NULL);
+				else
+					switchToSso_impl();
+				}
+			else {
+				// realloc and shrink
+				d.store.shrink_to_fit((T*) NULL);
+				}
+			}
+			
+		};
+	
+	
+	}

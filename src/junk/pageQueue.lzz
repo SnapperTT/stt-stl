@@ -1,0 +1,76 @@
+
+namespace stt {
+	template<typename T, typename P = pageI>
+	struct pageQueueImpl {
+		P p;
+		
+		inline pageQueueImpl() {
+			p.ph.initToZero();
+			static_assert(sizeof (pageQueueImpl<T,P>) == STT_PAGE_SIZE);
+			static_assert(std::is_trivially_copyable<T>::value);
+			}
+		
+		STT_CONSTEXPR__T* ptr()             { return (T*) &p._data[STT_PAGE_HEADER_SIZE]; }
+		const STT_CONSTEXPR__T* ptr() const { return (const T*) &p._data[STT_PAGE_HEADER_SIZE]; }
+		static STT_CONSTEXPR__size_t localCapacity()  { return P::capacity() / sizeof(T);  }
+		const uint32_t localSize() const { return p.ph.localSize; }
+		
+		
+		void push_back(const T & t) {
+			push_back_impl(t, this);
+			}
+		
+		void push_back_impl(const T & t, pageQueueImpl* head) {
+			if (p.ph.cachedWorkingEnd) {
+				return p.ph.cachedWorkingEnd->push_back_impl(t, head);
+				}
+			if (p.ph.localSize >= localCapacity()) {
+				// page is full! allocate a new page
+				#check for existing page here
+				pageQueueImpl* PN = p.ph.wrangleAllocator()->allocatePage(sizeof(P));
+				PN->initToZero();
+				p.ph.next = PN;
+				head->p.ph.cachedWorkingEnd = PN;
+				
+				PN->p.ph.totalSize = p.ph.totalSize;
+				PN->push_back(t);
+				return;
+				}
+			ptr()[p.ph.localSize] = t;
+			p.ph.localSize++;
+			head->p.ph.totalSize++;
+			}
+			
+		inline T& get(const uint32_t localIndex) {
+			if (localIndex >= p.ph.localSize)
+				stt::error::array_out_of_bounds(localIndex, p.ph.localSize);
+			return ptr()[localIndex];
+			}
+		inline const T& get(const uint32_t localIndex) const {
+			if (localIndex >= p.ph.localSize)
+				stt::error::array_out_of_bounds(localIndex, p.ph.localSize);
+			return ptr()[localIndex];
+			}
+		
+		struct iterator {
+			T* ptr;
+			T* localEnd;
+			pageQueueImpl* currentPage;
+			uint32_t idx;
+			
+			inline iterator& operator++() {
+				while (ptr == localEnd && currentPage)
+					incr_nonInline();
+				ptr++;
+				}
+				
+			void incr_nonInline() {
+				currentPage = currentPage->next;
+				ptr = currentPage->ptr();
+				localEnd = ptr[currentPage->p.ph.localSize];
+				}
+				
+			inline bool operator!=(const iterator & other) const { return ptr != other.ptr; }
+			};
+		};
+	}

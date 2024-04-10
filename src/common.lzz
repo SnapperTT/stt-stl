@@ -1,0 +1,179 @@
+// references 
+
+#hdr
+namespace stt {
+	struct sso_pod_tag { uint8_t _padding; };
+	struct sso_null_terminated_pod_tag { uint8_t _padding; };
+		
+	// Templates
+	// std can only be referenced from here
+	// if for whatever reason you don't want to use std then provide your own definitions
+	template<class T, class V>
+	using is_same = std::is_same<T,V>;
+		
+	template <typename T>
+	using is_pod = std::is_trivially_copyable<T>;
+	
+	// alias for is_pod<> implementation
+	template <typename T>
+	using pod_proxy = typename std::conditional<stt::is_pod<T>::value, sso_pod_tag, T>::type;
+	
+	template <typename T>
+	using initializer_list = std::initializer_list<T>;
+	
+	template <typename T>
+	using move_iterator = std::move_iterator<T>;
+	
+	template <typename T>
+	using reverse_iterator = std::reverse_iterator<T>;
+	
+	template <typename T>
+	using requires_fill_on_resize = std::integral_constant<bool,!std::is_trivially_default_constructible<T>::value>;
+	}
+#end
+
+#src
+#end
+
+namespace stt {
+	// Some notes on allocators:
+	// no exceptions, is something goes wrong then NULL is returned
+	inline void stt_memcpy(uint8_t* __dst, const uint8_t* __src, const storage_size_t __n) {
+		// Raw bytes memcpy
+		memcpy(__dst,  __src, __n);
+		}
+		
+	inline void stt_memmove(uint8_t* __dst, const uint8_t* __src, const storage_size_t __n) {
+		// Raw bytes memcpy
+		memmove(__dst,  __src, __n);
+		}
+		
+	inline void stt_memset(uint8_t* __dst, int __c, const storage_size_t __n) {
+		// Raw bytes memcpy
+		memset(__dst,  __c, __n);
+		}
+	
+	inline storage_size_t stt_strlen(const char * __s) {
+		return strlen(__s);
+		}
+	
+	inline void stt_assert(int expression, const char * expr) {
+		STT_STL_ASSERT(expression && expr);
+		}
+		
+	inline void* stt_malloc(const uint64_t __size) {
+		return malloc(__size);
+		}
+	
+	inline void stt_free(void* __ptr) {
+		free(__ptr);
+		}
+	
+	uint64_t hash_low(const uint64_t seed, const uint8_t* ptr, const alloc_size_t size) {
+		// Implementation based on tinyStl::hash
+		// https://github.com/mendsley/tinystl/blob/master/include/TINYSTL/hash.h
+		// which is in turn based on an implementation of sdbm a public domain
+		// string hash from Ozan Yigit
+		// see: http://www.eecs.harvard.edu/margo/papers/usenix91/paper.ps
+		uint64_t r = seed;
+		for (const uint8_t* itt = ptr; itt != ptr+size; ++itt)
+			r = (*itt) + (r << 6) + (r << 16) - r;
+		return r;
+		}
+	uint64_t hash_high(const uint64_t seed, const uint64_t* ptr, const alloc_size_t size) {
+		// same as above but does 8 bytes at a time
+		uint64_t r = seed;
+		for (const uint64_t* itt = ptr; itt != ptr+size; ++itt)
+			r = (*itt) + (r << 6) + (r << 16) - r;
+		return r;
+		}
+	uint64_t hash_function_big(const uint8_t* ptr, const alloc_size_t size) {
+		const alloc_size_t sz8 = (size-1) / 8;
+		uint64_t r = hash_high(0, (const uint64_t*) ptr, sz8);
+		return hash_low(r, ptr + 8*sz8, size - 8*sz8);
+		}
+			
+	inline uint64_t hash_function(const uint8_t* ptr, const alloc_size_t size) {
+		// for big buffers parse it 8 bytes at a time
+		if (size > 8)
+			return hash_function_big(ptr, size);
+		else
+			return hash_low(0, ptr, size); 
+		}
+		
+	template<typename T>
+	inline void objectFillRange(T* start, T* end) {
+		for (T* tPtr = start; tPtr != end; tPtr++)
+			new (tPtr) T();
+		}
+
+	template<typename T>
+	inline void objectFillRangeInPlace(T* start, T* end) {
+		objectFillRange(start, end);
+		}
+		
+	template<typename T>
+	inline void objectFillRangeValue(T* start, T* end, const T& value) {
+		for (T* tPtr = start; tPtr != end; tPtr++)
+			*tPtr = value;
+		}
+		
+	template<typename T>
+	inline void objectFillRangeValueInPlace(T* start, T* end, const T& value) {
+		for (T* tPtr = start; tPtr != end; tPtr++)
+			new (tPtr) T(value);
+		}
+	
+	template<typename T>
+	inline void objectDestroyRange(T* start, T* end) {
+		for (T* tPtr = start; tPtr != end; tPtr++)
+			tPtr->~T();
+		}
+	
+	template<typename T>
+	inline void objectCopyRange(T* dst, const T* start, const T* end) {
+		// Memcpy for objects
+		for (const T* tPtr = start; tPtr != end; tPtr++, dst++)
+			*dst = *tPtr;
+		}
+	
+	template<typename T>
+	inline void objectCopyRangeInPlace(T* dst, const T* start, const T* end) {
+		// Memcpy for objects
+		for (const T* tPtr = start; tPtr != end; tPtr++, dst++)
+			new (dst) T(*tPtr);
+		}
+		
+	template<typename T>
+	inline void objectMoveRange(T* dst, T* start, T* end) {
+		// Memmove for objects
+		for (T* tPtr = start; tPtr != end; tPtr++, dst++)
+			*dst = std::move(*tPtr);
+		}
+		
+	template<typename T>
+	inline void objectMoveRangeInPlace(T* dst, T* start, T* end) {
+		// Memmove for objects
+		for (T* tPtr = start; tPtr != end; tPtr++, dst++)
+			new(dst) T(std::move(*tPtr));
+		}
+		
+		
+	template<typename T>
+	inline void objectMoveRangeReverse(T* dst, T* start, T* end) {
+		// Memmove for objects
+		for (T* tPtr = start; tPtr != end; tPtr--, dst--)
+			*dst = std::move(*tPtr);
+		}
+	
+	// Errors
+	namespace error {
+		void array_out_of_bounds(const storage_size_t index, const storage_size_t size) {
+			STT_STL_ASSERT(0 && "index < size");
+			}
+		
+		void bad_alloc(const alloc_size_t size, const char* message) {
+			STT_STL_ASSERT(0 && "index < size" && message);
+			}
+		}
+	}
