@@ -1,4 +1,4 @@
-# stt-std
+# stt-stl
 Drop in replacements for `std::string` and `std::vector` with small-size optimisation. Header only library
 
 
