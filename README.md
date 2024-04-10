@@ -103,8 +103,8 @@ using small_vector8 = stt::small_vector<T, 8, uint16_t>; // small_vector that st
 ## Allocators
 * `stt::allocatorI`: Interface, defines `allocate(sz)`, `deallocate(ptr, sz)` and `try_realloc(ptr, oldSize, newSize)`
 * `try_realloc` does a simple check to see if the current allocation can be made bigger
-* `stt::setDefaultAllocator(...)`, `stt::getDefaultAllocator()`: Pointer to the global shared default allocator - if an allocator is not defined for an object then this will be used
-
+* `stt::setDefaultAllocator(...)`, `stt::getDefaultAllocator()`: Pointer to the global shared default allocator - if an allocator is not defined for an object then this will be used. A default allocator
+* You must define `#define STT_STL_DEFAULT_ALLOCATOR &stt::crt_allocator::m_static_crt_allocator` (or some other static `stt::allocatorI`) if you are using `stt::vector`/`stt::string` before `main()`. Do not use `stt::setDefaultAllocator` if you are doing this.
 
 
 ## Config
