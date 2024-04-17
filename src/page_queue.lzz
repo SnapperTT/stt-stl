@@ -1,3 +1,8 @@
+#hdr
+#end
+
+#src
+#end
 
 namespace stt {
 	template<typename T, typename P = pageI>
@@ -26,7 +31,7 @@ namespace stt {
 				}
 			if (p.ph.localSize >= localCapacity()) {
 				// page is full! allocate a new page
-				#check for existing page here
+				#warning for existing page here
 				pageQueueImpl* PN = p.ph.wrangleAllocator()->allocatePage(sizeof(P));
 				PN->initToZero();
 				p.ph.next = PN;
@@ -58,7 +63,7 @@ namespace stt {
 			pageQueueImpl* currentPage;
 			uint32_t idx;
 			
-			inline iterator& operator++() {
+			inline typename pageQueueImpl<T,P>::iterator& operator++() {
 				while (ptr == localEnd && currentPage)
 					incr_nonInline();
 				ptr++;

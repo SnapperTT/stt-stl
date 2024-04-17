@@ -33,12 +33,13 @@ int main (int argc, char * * argv);
 #include <cstdio>
 #include <iostream>
 #include "stt-stl.h"
+#include "stt-pages.h"
 
-#include <string>
-#include <vector>
-#define ANKERL_NANOBENCH_IMPLEMENT
-#include "3rd_party/nanobench.h"
-#include "benchmark_tests.h"
+//#include <string>
+//#include <vector>
+//#define ANKERL_NANOBENCH_IMPLEMENT
+//#include "3rd_party/nanobench.h"
+//#include "benchmark_tests.h"
 
 namespace stt {
 	template <typename T>
@@ -54,7 +55,7 @@ int main (int argc, char * * argv)
 	//std::cout << ctti_get_type_name<stt::string24>() << std::endl;
 	//return 0;
 
-	#if 1
+	#if 0
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;
 		//b.clockResolutionMultiple(10); // fast
@@ -70,7 +71,7 @@ int main (int argc, char * * argv)
 		}
 	#endif
 	
-	#if 1
+	#if 0
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;
 		//b.clockResolutionMultiple(10); // fast

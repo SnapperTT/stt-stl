@@ -4,10 +4,13 @@
 USE_STTR=
 
 LAZY=../../lzz-bin/lzz -hx hh
-RAWSOURCES=example.lzz config.lzz common.lzz allocator.lzz span.lzz storage.lzz sso.lzz page.lzz vector.lzz string.lzz benchmark_tests.lzz
 # Files are combined into single header
-SINGLEHEADER_SRC=config.h2 common.h2 allocator.h2 span.h2 storage.h2 sso.h2 page.h2 vector.h2 string.h2
+RAWSOURCES=example.lzz config.lzz common.lzz allocator.lzz storage.lzz sso.lzz page.lzz vector.lzz string.lzz benchmark_tests.lzz mt_page_allocator.lzz page_queue.lzz page.lzz
+SINGLEHEADER_SRC=config.h2 common.h2 allocator.h2 storage.h2 sso.h2 page.h2 vector.h2 string.h2
 SINGLEHEADER_OUT=stt-stl.h
+# Pages optional sub-module
+PAGES_SRC=mt_page_allocator.h2 page_queue.h2 page.h2
+PAGES_OUT=stt-pages.h
 # Files that are discrete files 
 EXTRAHEADER_H=benchmark_tests.h2
 EXTRAHEADER_CPP=example.h2
@@ -24,6 +27,7 @@ endif
 SOURCES=$(addprefix $(TEMPDIR), $(RAWSOURCES:.lzz=.cpp))
 SFI=$(addprefix $(OUTPUTDIR), $(RAWSOURCES:.lzz=.h))
 OSINGLEHEADER_OUT=$(OUTPUTDIR)$(SINGLEHEADER_OUT)
+OPAGES_OUT=$(OUTPUTDIR)$(PAGES_OUT)
 OEXTRAHEADER_OUT=$(addprefix $(OUTPUTDIR), $(EXTRAHEADER_H:.h2=.h)) $(addprefix $(OUTPUTDIR), $(EXTRAHEADER_CPP:.h2=.cpp))
 
 ########################################################################
@@ -34,7 +38,7 @@ all:
 #	$(MAKE) sttr
 
 .PHONY: all_base
-all_base: $(OSINGLEHEADER_OUT) $(OEXTRAHEADER_OUT) $(OUTPUTDIR)
+all_base: $(OSINGLEHEADER_OUT) $(OEXTRAHEADER_OUT) $(OPAGES_OUT) $(OUTPUTDIR)
 	@echo Done
 
 .PHONY: sttr
@@ -61,6 +65,9 @@ $(TEMPDIR)%.cpp $(TEMPDIR)%.hh: %.lzz $(SUBSOURCES)
 
 $(OSINGLEHEADER_OUT): $(addprefix $(TEMPDIR), $(SINGLEHEADER_SRC)) $(OUTPUTDIR)
 	cat $(addprefix $(TEMPDIR), $(SINGLEHEADER_SRC)) > $(OSINGLEHEADER_OUT)
+	
+$(OPAGES_OUT): $(addprefix $(TEMPDIR), $(PAGES_SRC)) $(OUTPUTDIR)
+	cat $(addprefix $(TEMPDIR), $(PAGES_SRC)) > $(OPAGES_OUT)
 
 $(OUTPUTDIR)%.h: $(TEMPDIR)%.h2 $(OUTPUTDIR)
 	mv -f $< $@

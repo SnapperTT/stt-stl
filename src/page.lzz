@@ -11,7 +11,7 @@
 
 namespace stt {
 	union pageI;
-	class pageAllocatorI;
+	class PageAllocator;
 	}
 	
 #end
@@ -27,16 +27,15 @@ namespace stt {
 // the idea is that pages are allocated once then recycled
 
 namespace stt {
-	union pageI;
-	
-	enum pageType {
+	enum pageTypeEnum {
 		PAGE_TYPE_NORMAL,
-		PAGE_TYPE_JUMBO
+		PAGE_TYPE_JUMBO,
+		PAGE_TYPE_UNSET
 		};
 	
 	struct pageHeader {
 		// note: not all fields are used!
-		pageAllocatorI* allocator;	// what object controls the lifetime of this?
+		void* allocator;			  // (unused) what object controls the lifetime of this? If NULL then it is assumed that the global ThreadSafePageAllocatorImpl handles this
 		pageHeader* next;			  // next page
 		pageHeader* cachedWorkingEnd; // (optional) if this is the head of a linked list then this is the end page, otherwise this is undefiend
 		uint32_t localSize;			  // (optional) if this page is an array then this is the local size of the array
@@ -53,15 +52,43 @@ namespace stt {
 			useMask = 0;
 			}
 		
-		inline pageAllocatorI* wrangleAllocator() const {
-			return allocator ? allocator : ???;
+		//inline PageAllocator* wrangleAllocator() const {
+		//	return allocator ? allocator : ???;
+		//	}
+			
+		//pageHeader* allocatePageAndInitToZero(const uint64_t pageSize) const {
+		//	PageAllocator* a = wrangleAllocator();
+		//	pageHeader* r = a->allocatePage(pageSize);
+		//	r->initToZero();
+		//	r->allocator = a;
+		//	return r;
+		//	}
+		
+		void appendList(pageHeader* other) {
+			// appends other to this list
+			// assumes cachedWorkingEnd is a valid value for both this and other
+			cachedWorkingEnd->next = other;
+			cachedWorkingEnd = other->cachedWorkingEnd;
 			}
 			
-		pageHeader* allocatePageAndInitToZero(const uint64_t pageSize) const {
-			pageAllocatorI* a = wrangleAllocator();
-			pageHeader* r = a->allocatePage(pageSize);
-			r->initToZero();
-			r->allocator = a;
+		pageHeader* splitList(const uint32_t nPages) {
+			// assumes cachedWorkingEnd is a valid value for this
+			// if this is too short then returns NULL
+			pageHeader* w = this;
+			uint32_t cnt = 1;
+			while (w->next && (cnt < nPages)) {
+				cnt++;
+				w = w->next;
+				}
+			// w should now be the end of this list
+			// and w->next should be the start of next
+			if (!w) return NULL; // fail split
+			if (!w->next) return NULL; // fail split
+			
+			pageHeader* r = w->next;
+			r->cachedWorkingEnd = cachedWorkingEnd;
+			w->next = NULL;
+			cachedWorkingEnd = w;
 			return r;
 			}
 		
@@ -87,7 +114,7 @@ namespace stt {
 		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
 		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
 		static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
-		static STT_CONSTEXPR__pageTypeEnum getPageType() const { return pageTypeEnum::PAGE_TYPE_NORMAL; }
+		static STT_CONSTEXPR__pageTypeEnum getPageType() { return pageTypeEnum::PAGE_TYPE_NORMAL; }
 		};
 		
 	union jumboPageI {
@@ -97,7 +124,7 @@ namespace stt {
 		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
 		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
 		static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
-		static STT_CONSTEXPR__pageTypeEnum getPageType() const { return pageTypeEnum::PAGE_TYPE_JUMBO; }
+		static STT_CONSTEXPR__pageTypeEnum getPageType() { return pageTypeEnum::PAGE_TYPE_JUMBO; }
 		};
 		
 	

@@ -177,7 +177,7 @@ namespace stt {
 			
 		void shrink_to_fit() { sso.shrink_to_fit(); }
 		
-		inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
+		//inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
 		
 		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
 		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
