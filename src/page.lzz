@@ -3,10 +3,10 @@
 	#define STT_PAGE_HEADER_SIZE 64
 #endif
 #ifndef STT_PAGE_SIZE
-	#define STT_PAGE_SIZE 4096
+	#define STT_PAGE_SIZE 4080	// this makes alignement better 
 #endif
 #ifndef STT_JUMBO_PAGE_SIZE
-	#define STT_JUMBO_PAGE_SIZE 65536
+	#define STT_JUMBO_PAGE_SIZE 65520
 #endif
 
 namespace stt {

@@ -317,8 +317,13 @@ public:
 			}
 		if (count < nPages) {
 			// we are out of pages, request pages from TSPA (locking)
+			const uint32_t countInit = count;
 			const uint32_t want = requestAmount + nPages - count;
 			pageHeader* localStore[want];
+			
+			#ifdef STT_DEBUG_PAGE
+				printf("ThreadLocalPagePool count: %i, nPages: %i, want: %i\n", count, nPages, want);
+			#endif
 			
 			if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
 				ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.bulkFetch(&localStore[0], want);
@@ -337,7 +342,7 @@ public:
 			#ifdef STT_DEBUG_PAGE
 				stt_assert(freelist == NULL, "freelist is null");
 			#endif
-			freelist = localStore[nPages];
+			freelist = localStore[nPages - countInit];
 			nPagesInFreeList = requestAmount;
 			
 			#ifdef STT_DEBUG_PAGE
@@ -423,8 +428,12 @@ public:
 	ThreadSafePageAllocatorImpl() {
 		PageGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
 		JumboGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		
+		initThreadLocalAllocators(); // init for this thread
 		}
-	~ThreadSafePageAllocatorImpl() {}
+	~ThreadSafePageAllocatorImpl() {
+		cleanupGlobalFreeLists();
+		}
 	
 	static ThreadSafePageAllocatorImpl& get() {
 		static ThreadSafePageAllocatorImpl Instance;
@@ -432,7 +441,9 @@ public:
 		}
 		
 	void initThreadLocalAllocators() {
-		mTls.setTlsData(new PATL_Data);
+		PATL_Data* r = mTls.getTlsData();
+		if (!r)
+			mTls.setTlsData(new PATL_Data);
 		}
 	void cleanupThreadLocalAllocators() {
 		PATL_Data* r = ThreadSafePageAllocatorImpl::get().mTls.getTlsData();

@@ -5,7 +5,7 @@ USE_STTR=
 
 LAZY=../../lzz-bin/lzz -hx hh
 # Files are combined into single header
-RAWSOURCES=example.lzz config.lzz common.lzz allocator.lzz storage.lzz sso.lzz page.lzz vector.lzz string.lzz benchmark_tests.lzz mt_page_allocator.lzz page_queue.lzz page.lzz
+RAWSOURCES=example.lzz example_pages.lzz config.lzz common.lzz allocator.lzz storage.lzz sso.lzz page.lzz vector.lzz string.lzz benchmark_tests.lzz mt_page_allocator.lzz page_queue.lzz page.lzz
 SINGLEHEADER_SRC=config.h2 common.h2 allocator.h2 storage.h2 sso.h2 page.h2 vector.h2 string.h2
 SINGLEHEADER_OUT=stt-stl.h
 # Pages optional sub-module
@@ -13,7 +13,7 @@ PAGES_SRC=mt_page_allocator.h2 page_queue.h2 page.h2
 PAGES_OUT=stt-pages.h
 # Files that are discrete files 
 EXTRAHEADER_H=benchmark_tests.h2
-EXTRAHEADER_CPP=example.h2
+EXTRAHEADER_CPP=example.h2 example_pages.h2
 OUTPUTDIR=../
 OUTPUTDIR_STTR=../vgui_sttr/
 TEMPDIR=temp/

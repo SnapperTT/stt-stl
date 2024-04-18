@@ -502,8 +502,13 @@ namespace stt
 			}
 		if (count < nPages) {
 			// we are out of pages, request pages from TSPA (locking)
+			const uint32_t countInit = count;
 			const uint32_t want = requestAmount + nPages - count;
 			pageHeader* localStore[want];
+			
+			#ifdef STT_DEBUG_PAGE
+				printf("ThreadLocalPagePool count: %i, nPages: %i, want: %i\n", count, nPages, want);
+			#endif
 			
 			if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
 				ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.bulkFetch(&localStore[0], want);
@@ -522,7 +527,7 @@ namespace stt
 			#ifdef STT_DEBUG_PAGE
 				stt_assert(freelist == NULL, "freelist is null");
 			#endif
-			freelist = localStore[nPages];
+			freelist = localStore[nPages - countInit];
 			nPagesInFreeList = requestAmount;
 			
 			#ifdef STT_DEBUG_PAGE
@@ -611,12 +616,16 @@ namespace stt
                                       {
 		PageGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
 		JumboGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		
+		initThreadLocalAllocators(); // init for this thread
 		}
 }
 namespace stt
 {
   ThreadSafePageAllocatorImpl::~ ThreadSafePageAllocatorImpl ()
-                                       {}
+                                       {
+		cleanupGlobalFreeLists();
+		}
 }
 namespace stt
 {
@@ -630,7 +639,9 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::initThreadLocalAllocators ()
                                          {
-		mTls.setTlsData(new PATL_Data);
+		PATL_Data* r = mTls.getTlsData();
+		if (!r)
+			mTls.setTlsData(new PATL_Data);
 		}
 }
 namespace stt
@@ -909,10 +920,10 @@ namespace stt
 	#define STT_PAGE_HEADER_SIZE 64
 #endif
 #ifndef STT_PAGE_SIZE
-	#define STT_PAGE_SIZE 4096
+	#define STT_PAGE_SIZE 4080	// this makes alignement better 
 #endif
 #ifndef STT_JUMBO_PAGE_SIZE
-	#define STT_JUMBO_PAGE_SIZE 65536
+	#define STT_JUMBO_PAGE_SIZE 65520
 #endif
 
 namespace stt {

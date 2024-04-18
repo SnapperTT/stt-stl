@@ -10,11 +10,7 @@
 #define STT_STL_DEBUG 1
 #define STT_STL_DEBUG_MEMORY 1
 #include "stt-stl.h"
-#define STT_STL_IMPL 1
-//#include <span>
-//#define STT_STL_SPAN std::span
-#include <type_traits>
-
+#define STT_STL_IMPL 1 // needed here for .lzz to include #src
 #define LZZ_INLINE inline
 int main (int argc, char * * argv);
 #undef LZZ_INLINE
@@ -32,15 +28,17 @@ int main (int argc, char * * argv);
 
 #include <cstdio>
 #include <iostream>
-#include "stt-stl.h"
-#define STT_DEBUG_PAGE 1
-#include "stt-pages.h"
+#include <type_traits>
 
-//#include <string>
-//#include <vector>
-//#define ANKERL_NANOBENCH_IMPLEMENT
-//#include "3rd_party/nanobench.h"
-//#include "benchmark_tests.h"
+#define STT_STL_IMPL 1
+#include "stt-stl.h"
+
+#include <string>
+#include <vector>
+
+#define ANKERL_NANOBENCH_IMPLEMENT
+#include "3rd_party/nanobench.h"
+#include "benchmark_tests.h"
 
 namespace stt {
 	template <typename T>
@@ -52,20 +50,8 @@ int main (int argc, char * * argv)
 	//printf("Hello\n");
 	static stt::crt_allocator alloc;
 	stt::setDefaultAllocator(&alloc);
-	
-	//std::cout << ctti_get_type_name<stt::string24>() << std::endl;
-	//return 0;
-
-	stt::ThreadSafePageAllocator::initThreadLocalAllocators();
-	
-	stt::pageI* p = stt::ThreadSafePageAllocator::allocPage();
-	std::cout << p << std::endl;
-	
-	stt::ThreadSafePageAllocator::freePage(p);
-	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators();
-	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists();
-	
-	#if 0
+		
+	#if 1
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;
 		//b.clockResolutionMultiple(10); // fast
@@ -81,7 +67,7 @@ int main (int argc, char * * argv)
 		}
 	#endif
 	
-	#if 0
+	#if 1
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;
 		//b.clockResolutionMultiple(10); // fast
