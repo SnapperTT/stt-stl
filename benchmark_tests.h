@@ -18,6 +18,13 @@
 #include <string>
 #if __cplusplus >= 202002L
 	#include <span>
+	#define HAS_SPAN 1
+	namespace stt {
+		template <typename T>
+		using span = std::span<T>
+		}
+#else
+	#define HAS_SPAN 0
 #endif
 namespace stt {
 	typedef std::string string;
@@ -176,6 +183,7 @@ namespace stt_benchmarks
   void benchmarkSeqReadPrefetch (ankerl::nanobench::Bench * bench, V const & v, char const * name)
                                                                                                       {
 		// Tests sequential read
+		#if HAS_SPAN
 		ankerl::nanobench::doNotOptimizeAway(numToInsert);
 		T t;
 		for (int i = 0; i < numToInsert; ++i) {
@@ -190,6 +198,7 @@ namespace stt_benchmarks
 				ankerl::nanobench::doNotOptimizeAway(vtemp);
 				}
 			});
+		#endif
 		}
 }
 namespace stt_benchmarks
@@ -282,11 +291,11 @@ namespace stt_benchmarks
 			case 6:
 				if constexpr (isTest) benchmarkSeqRead<T<int>, int, 32>(bench, 1, label);
 				return "read int 32";
-				
+			#if HAS_SPAN
 			case 7:
 				if constexpr (isTest) benchmarkSeqReadPrefetch<T<int>, int, 32>(bench, 1, label);
 				return "read int 32 (span)";
-				
+			#endif
 			case 8:
 				if constexpr (isTest) benchmarkSeqRead<T<int>, int, 10000000>(bench, 1, label);
 				return "read int 1,000,000";

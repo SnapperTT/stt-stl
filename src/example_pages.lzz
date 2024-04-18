@@ -1,0 +1,33 @@
+#hdr
+#define STT_STL_DEBUG 1
+#define STT_STL_DEBUG_MEMORY 1
+#include "stt-stl.h"
+#define STT_STL_IMPL 1
+#end
+
+
+#src
+#define STT_STL_IMPL 1
+#include "stt-stl.h"
+#define STT_DEBUG_PAGE 1
+#include "stt-pages.h"
+
+#include <iostream>
+#end
+
+
+
+int main (int argc, char ** argv) {
+	stt::ThreadSafePageAllocator::initThreadLocalAllocators();
+	
+	stt::pageI* p = stt::ThreadSafePageAllocator::allocPage();
+	stt::pageI* pp[137];
+	stt::ThreadSafePageAllocator::allocPages(&pp[0], 137);
+	std::cout << p << std::endl;
+	stt::ThreadSafePageAllocator::freePage(p);
+	stt::ThreadSafePageAllocator::freePages(&pp[0], 137);
+	
+	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators();
+	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists();
+	return 1;
+	}
