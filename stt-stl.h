@@ -1544,6 +1544,10 @@ namespace stt
 }
 namespace stt
 {
+  char const * pageTypeEnumToString (pageTypeEnum const pt);
+}
+namespace stt
+{
   struct pageHeader
   {
     void * allocator;
@@ -1558,6 +1562,7 @@ namespace stt
     pageHeader * splitList (uint32_t const nPages);
     pageHeader * end ();
     pageHeader * endCounting (int & countOut);
+    int listLength ();
   };
 }
 namespace stt
@@ -1616,10 +1621,22 @@ namespace stt {
 #define LZZ_INLINE inline
 namespace stt
 {
+  char const * pageTypeEnumToString (pageTypeEnum const pt)
+                                                                 {
+		switch (pt) {
+			case pageTypeEnum::PAGE_TYPE_NORMAL: return "Normal";
+			case pageTypeEnum::PAGE_TYPE_JUMBO: return "Jumbo";
+			default: return "Unset";
+			}
+		}
+}
+namespace stt
+{
   void pageHeader::appendList (pageHeader * other)
                                                    {
 			// appends other to this list
-			// assumes cachedWorkingEnd is a valid value for both this and other
+			// assumes cachedWorkingEnd is a valid value for both this and othe
+			// assumes other is not null
 			cachedWorkingEnd->next = other;
 			cachedWorkingEnd = other->cachedWorkingEnd;
 			}
@@ -1664,8 +1681,18 @@ namespace stt
                                                        {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
+			countOut++;
 			while (w->next) { countOut++; w = w->next; }
 			return w;
+			}
+}
+namespace stt
+{
+  int pageHeader::listLength ()
+                                 {
+			int cnt = 0;
+			endCounting(cnt);
+			return cnt;
 			}
 }
 namespace stt

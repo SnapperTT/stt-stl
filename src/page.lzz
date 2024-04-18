@@ -32,6 +32,14 @@ namespace stt {
 		PAGE_TYPE_JUMBO,
 		PAGE_TYPE_UNSET
 		};
+		
+	const char * pageTypeEnumToString(const pageTypeEnum pt) {
+		switch (pt) {
+			case pageTypeEnum::PAGE_TYPE_NORMAL: return "Normal";
+			case pageTypeEnum::PAGE_TYPE_JUMBO: return "Jumbo";
+			default: return "Unset";
+			}
+		}
 	
 	struct pageHeader {
 		// note: not all fields are used!
@@ -66,7 +74,8 @@ namespace stt {
 		
 		void appendList(pageHeader* other) {
 			// appends other to this list
-			// assumes cachedWorkingEnd is a valid value for both this and other
+			// assumes cachedWorkingEnd is a valid value for both this and othe
+			// assumes other is not null
 			cachedWorkingEnd->next = other;
 			cachedWorkingEnd = other->cachedWorkingEnd;
 			}
@@ -102,8 +111,15 @@ namespace stt {
 		pageHeader* endCounting(int& countOut) {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
+			countOut++;
 			while (w->next) { countOut++; w = w->next; }
 			return w;
+			}
+			
+		int listLength() {
+			int cnt = 0;
+			endCounting(cnt);
+			return cnt;
 			}
 		};
 		

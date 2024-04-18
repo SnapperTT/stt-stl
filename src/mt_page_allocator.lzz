@@ -144,24 +144,51 @@ public:
 		}
 		
 	~BackendPagePool() {
+		#ifdef STT_DEBUG_PAGE
+		printf("~BackendPagePool %s\n", pageTypeEnumToString(mPageType));
+		dbg_print_status();
+		#endif
 		freeAll();
+		}
+		
+	void dbg_print_status() {
+		#ifdef STT_DEBUG_PAGE
+		mMutex.lock();
+		pageHeader* h = atomicTake();
+			printf("\tBackendPagePool (%s): %p, %i -- %p, %i\n", pageTypeEnumToString(mPageType), allocFreeList, allocFreeList ? allocFreeList->listLength() : 0, h, h ? h->listLength() : 0);
+		if (h) atomicMerge(h);
+		mMutex.unlock();
+		#endif
 		}
 	
 	void freeAll() {
 		// Takes all pages held here and deallocates them
 		mMutex.lock();
 		pageHeader* h = atomicTake();
+		#ifdef STT_DEBUG_PAGE
+		printf("BackendPagePool freeAll IN: h: %p, allocFreeList: %p\n", h, allocFreeList);
+		#endif
 		if (h) {
 			if (allocFreeList)
 				allocFreeList->appendList(h);
 			else
 				allocFreeList = h;
 			}
+		#ifdef STT_DEBUG_PAGE
+		printf("BackendPagePool freeAll: allocFreeList %p\n", allocFreeList);
+		#endif
 		ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
 		allocFreeList = NULL;
 		mMutex.unlock();
 		}
 	
+	inline void atomicMerge(pageHeader* _insert, const uint32_t _nReturned) {
+		#ifdef STT_DEBUG_PAGE
+		printf("BackendPagePool atomicMerge: %p %i\n", _insert, _nReturned);
+		#endif
+		atomicMerge(_insert);
+		}
+		
 	void atomicMerge(pageHeader* _insert) {
 		// Adds @_insert to the atomic free list @this->_list
 		
@@ -170,10 +197,9 @@ public:
 		// _list is now NULL
 		
 		// merge the lists
-		if (workingList) {
+		if (workingList)
 			_insert->appendList(workingList);
-			workingList = _insert;
-			}
+		workingList = _insert;
 		
 		// replace NULL head with the working list
 		pageHeader* nullList = NULL;
@@ -203,18 +229,21 @@ public:
 		
 		pageHeader* w = allocFreeList;
 		uint32_t i = 0;
-		for (i = 0; i < nPages && w->next; ++i) {
-			store[i] = w;
-			w = w->next;
+		if (w) {
+			for (i = 0; i < nPages && w->next; ++i) {
+				store[i] = w;
+				w = w->next;
+				}
 			}
 			
 		const uint32_t nAllocated = i;
-		if (w->next && i == nPages) {
+		if (i == nPages) {
 			// cut the linked list here
 			pageHeader* newHead = w->next;
 			w->next = NULL;
 			w->cachedWorkingEnd = NULL;
-			newHead->cachedWorkingEnd = allocFreeList->cachedWorkingEnd;
+			if (newHead)
+				newHead->cachedWorkingEnd = allocFreeList->cachedWorkingEnd;
 			allocFreeList = newHead;
 			mMutex.unlock();
 			return;
@@ -231,7 +260,15 @@ public:
 			}
 		
 		// the entire free list has been consumed so we can dispose of it here
-		allocFreeList = leftovers;		
+		allocFreeList = leftovers;
+		
+		#if STT_DEBUG_PAGE
+		printf ("bulkFetch %s, %i, %i\n", pageTypeEnumToString(mPageType), batchSize + nPages - nAllocated, nPages - nAllocated);
+		int cnt = 0;
+		pageHeader* tail = allocFreeList->endCounting(cnt);
+		printf ("allocFreeList %p %p %p %p %i\n", allocFreeList, allocFreeList->next, allocFreeList->cachedWorkingEnd, tail, cnt);
+		#endif
+		
 		mMutex.unlock();
 		}
 	};
@@ -252,13 +289,23 @@ public:
 		mPageType = pageTypeEnum::PAGE_TYPE_UNSET;
 		nPagesInFreeList = 0;
 		
-		requestAmount = 100;
-		maxFreeListAmount = 200;
+		requestAmount = 10;
+		maxFreeListAmount = 20;
 		}
 		
 	~ThreadLocalPagePool() {
-		freePagesList(freelist);
+		#ifdef STT_DEBUG_PAGE
+			printf("~ThreadLocalPagePool\n");
+			dbg_print_status();
+		#endif
+		returnPagesToGlobalPool(freelist, nPagesInFreeList);
 		freelist = NULL;
+		}
+		
+	void dbg_print_status() {
+		#ifdef STT_DEBUG_PAGE
+			printf("\tThreadLocalPagePool (%s): %p, %i/%i\n", pageTypeEnumToString(mPageType), freelist, freelist ? freelist->listLength() : 0, nPagesInFreeList);
+		#endif
 		}
 	
 	void allocPages(pageHeader** pages, const uint32_t nPages) {
@@ -286,6 +333,17 @@ public:
 				pages[count] = localStore[idx];
 				++idx;
 				}
+					
+			#ifdef STT_DEBUG_PAGE
+				stt_assert(freelist == NULL, "freelist is null");
+			#endif
+			freelist = localStore[nPages];
+			nPagesInFreeList = requestAmount;
+			
+			#ifdef STT_DEBUG_PAGE
+			printf("ThreadLocalPagePool allocPages:\n");
+				dbg_print_status();
+			#endif
 			}
 		}
 		
@@ -314,8 +372,8 @@ public:
 			}
 		nPagesInFreeList += realKnownCount;	
 		
-		pagesLinkedList->cachedWorkingEnd->next = freelist;
-		pagesLinkedList->cachedWorkingEnd = freelist->cachedWorkingEnd;
+		if (freelist)
+			pagesLinkedList->appendList(freelist);
 		freelist = pagesLinkedList;
 		
 		if (nPagesInFreeList > maxFreeListAmount) {
@@ -326,12 +384,13 @@ public:
 		}
 		
 	void returnPagesToGlobalPool(pageHeader* returnList, const uint32_t nReturned) {
+		if (!returnList) return;
 		nPagesInFreeList -= nReturned;
 		// Return pages to main cache
 		if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
-			ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.atomicMerge(returnList);
+			ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.atomicMerge(returnList, nReturned);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
-			ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList.atomicMerge(returnList);
+			ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList.atomicMerge(returnList, nReturned);
 		else
 			abort();
 		}
@@ -344,6 +403,12 @@ struct PATL_Data {
 	PATL_Data() {
 		pageAlloc.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
 		jumboPageAlloc.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		}
+		
+	~PATL_Data() {
+		#ifdef STT_DEBUG_PAGE
+			printf("~PATL_Data\n");
+		#endif
 		}
 	};
 	
@@ -373,6 +438,10 @@ public:
 		PATL_Data* r = ThreadSafePageAllocatorImpl::get().mTls.getTlsData();
 		if (r) delete r;
 		mTls.setTlsData(NULL);
+		}
+	void cleanupGlobalFreeLists() {
+		PageGlobalFreeList.freeAll();
+		JumboGlobalFreeList.freeAll();
 		}
 	PATL_Data* getThreadLocalAllocators() {
 		return mTls.getTlsData();
@@ -411,6 +480,11 @@ public:
 	static void systemAllocate_impl(const uint32_t nPagesTotal, const uint32_t nSplit, pageHeader** groupA, pageHeader** groupB) {
 		// Group A & B are pointers to pointers, NOT arrays of pointers
 		// allocates at least nPagesTotal, and returns (nSplit) into linked list groupA and the rest into linked list groupB
+		
+		#ifdef STT_DEBUG_PAGE
+			printf("Allocating %i (%i) pages\n", nPagesTotal, nSplit);
+		#endif
+		
 		pageHeader* ph[nPagesTotal];
 		ph[0] = (pageHeader*) new PAGE_TYPE();
 		for (uint i = 1; i < nPagesTotal; ++i) {
@@ -435,12 +509,22 @@ public:
 		}
 		
 	static void systemFreeList(pageHeader* head) {
+		#ifdef STT_DEBUG_PAGE
+			uint32_t nPagesTotal = 0;
+		#endif
 		pageHeader* w = head;
 		while (w) {
 			pageHeader* n = w->next;
 			delete w;
 			w = n;
+			#ifdef STT_DEBUG_PAGE
+				nPagesTotal++;
+			#endif
 			}
+			
+		#ifdef STT_DEBUG_PAGE
+			printf("Freeing %i pages\n", nPagesTotal);
+		#endif
 		}
 	};
 	

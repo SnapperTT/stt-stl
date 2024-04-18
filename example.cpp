@@ -33,6 +33,7 @@ int main (int argc, char * * argv);
 #include <cstdio>
 #include <iostream>
 #include "stt-stl.h"
+#define STT_DEBUG_PAGE 1
 #include "stt-pages.h"
 
 //#include <string>
@@ -55,6 +56,15 @@ int main (int argc, char * * argv)
 	//std::cout << ctti_get_type_name<stt::string24>() << std::endl;
 	//return 0;
 
+	stt::ThreadSafePageAllocator::initThreadLocalAllocators();
+	
+	stt::pageI* p = stt::ThreadSafePageAllocator::allocPage();
+	std::cout << p << std::endl;
+	
+	stt::ThreadSafePageAllocator::freePage(p);
+	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators();
+	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists();
+	
 	#if 0
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;
