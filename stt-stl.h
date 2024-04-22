@@ -1560,6 +1560,7 @@ namespace stt
     void initToZero ();
     void appendList (pageHeader * other);
     pageHeader * splitList (uint32_t const nPages);
+    static pageHeader * buildList (pageHeader * * pages, uint32_t const nPages);
     pageHeader * end ();
     pageHeader * endCounting (int & countOut);
     int listLength ();
@@ -1663,6 +1664,20 @@ namespace stt
 			w->next = NULL;
 			cachedWorkingEnd = w;
 			return r;
+			}
+}
+namespace stt
+{
+  pageHeader * pageHeader::buildList (pageHeader * * pages, uint32_t const nPages)
+                                                                                        {
+			// assembles pages into a linked list, returns the head
+			if (!nPages) return NULL;
+			for (uint32_t i = 0; i < nPages-1; ++i) {
+				pages[i]->next = pages[i+1];
+				}
+			pages[nPages-1]->next = NULL;
+			pages[0]->cachedWorkingEnd = pages[nPages-1];
+			return pages[0];
 			}
 }
 namespace stt

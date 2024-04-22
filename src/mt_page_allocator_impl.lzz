@@ -1,0 +1,628 @@
+#hdr
+
+#ifndef STT_TLS_WRAPPER
+	#ifdef __WIN32
+		#define STT_TLS_WRAPPER WindowsThreadLocalWrapper
+		#define STT_WINDOWS_TLS 1
+		#define STT_thread_local_PATL_Data int
+		#define STT_DWORD DWORD
+	#else
+		#define STT_TLS_WRAPPER NativeThreadLocalWrapper
+		#define STT_thread_local_PATL_Data thread_local PATL_Data
+		#define STT_DWORD int
+	#endif
+#endif
+
+namespace stt {
+	struct PATL_Data;
+	}
+	
+#include <mutex>
+#include <atomic>
+#end
+
+#src
+#end
+
+namespace stt {
+struct PATL_Data; // Page Allocacator Thread Local Data
+
+////////////////////////////////////////////////////////////////////////
+// wrapper around thread_local keyword (which is very broken in the wild)
+struct NativeThreadLocalWrapper {
+	// Use on platforms/compilers where "thread_local" keyword actually works
+	static STT_thread_local_PATL_Data* mData;
+	
+	inline PATL_Data* getTlsData() { return mData; }
+	inline void setTlsData(PATL_Data* ptr) { mData = ptr; }
+	};
+	
+struct WindowsThreadLocalWrapper {
+	// Implement the windows TLS api here
+	STT_DWORD dwTlsIndex;
+	
+	WindowsThreadLocalWrapper() {
+		dwTlsIndex = 0;
+		#ifdef STT_WINDOWS_TLS
+		dwTlsIndex = TlsAlloc();
+		if (dwTlsIndex == TLS_OUT_OF_INDEXES)
+			stt_abort();
+		#endif
+		}
+	~WindowsThreadLocalWrapper() {
+		#ifdef STT_WINDOWS_TLS
+		TlsFree(dwTlsIndex);
+		#endif
+		}
+	
+	inline PATL_Data* getTlsData() {
+		#ifdef STT_WINDOWS_TLS
+		return (PATL_Data*) TlsGetValue(dwTlsIndex);
+		#else
+		return NULL;
+		#endif
+		}
+	inline void setTlsData(PATL_Data* ptr) {
+		#ifdef STT_WINDOWS_TLS
+		TlsSetValue(dwTlsIndex, ptr);
+		#endif
+		}
+	};
+
+/*
+struct T2ThreadLocalWrapper {
+	inline PATL_Data* getTlsData() {
+		TLS_Container* TD = TLS_Container::getData();
+		return ((TLS_Entry<stt::PATL_Data*, 7>*) TD->dataArray[7])->data;
+		}
+	inline void setTlsData(PATL_Data* ptr) {
+		TLS_Container* TD = TLS_Container::getData();
+		((TLS_Entry<stt::PATL_Data*, 7>*) TD->dataArray[7])->data = ptr;
+		}
+	};
+*/
+
+class BackendPagePool;
+class ThreadLocalPagePool;
+
+class BackendPagePool {
+public:
+	// Can be accessed from multiple threads
+	// This feeds pages from the system -> local pool -> thead_local pageAllocatorI's
+	// allocation is locking but free'ing is lock free
+	pageTypeEnum mPageType;
+	uint32_t batchSize;	// when system allocation how many pages to alloc?
+	
+	// Locked alloc
+	pageHeader* allocFreeList; // freeList of avaliable pages, used for allocations
+	std::mutex mMutex;	// could be made lock free with an atomic bitmap
+	
+	// Multithreaded lock free return
+	std::atomic<pageHeader*> _list; // used for deletions
+	
+	BackendPagePool() {
+		mPageType = pageTypeEnum::PAGE_TYPE_UNSET;
+		batchSize = 100;
+		
+		allocFreeList = NULL;
+		_list = NULL;
+		}
+		
+	~BackendPagePool() {
+		#ifdef STT_DEBUG_PAGE
+		printf("~BackendPagePool %s\n", pageTypeEnumToString(mPageType));
+		dbg_print_status();
+		#endif
+		freeAll();
+		}
+		
+	void dbg_print_status() {
+		mMutex.lock();
+		pageHeader* h = atomicTake();
+		printf("\tBackendPagePool (%s): %p, %i -- %p, %i\n", pageTypeEnumToString(mPageType), allocFreeList, allocFreeList ? allocFreeList->listLength() : 0, h, h ? h->listLength() : 0);
+		if (h) atomicMerge(h);
+		mMutex.unlock();
+		}
+	
+	void freeAll() {
+		// Takes all pages held here and deallocates them
+		mMutex.lock();
+		pageHeader* h = atomicTake();
+		#ifdef STT_DEBUG_PAGE
+		printf("BackendPagePool freeAll IN: h: %p, allocFreeList: %p\n", h, allocFreeList);
+		#endif
+		if (h) {
+			if (allocFreeList)
+				allocFreeList->appendList(h);
+			else
+				allocFreeList = h;
+			}
+		#ifdef STT_DEBUG_PAGE
+		printf("BackendPagePool freeAll: allocFreeList %p\n", allocFreeList);
+		#endif
+		ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
+		allocFreeList = NULL;
+		mMutex.unlock();
+		}
+	
+	void freePages(pageHeader** pages, const uint32_t nPages) {
+		// For the situation where we have an array of pages
+		if (!nPages) return;
+		atomicMerge(pageHeader::buildList(pages, nPages), nPages);
+		}
+		
+	inline void atomicMerge(pageHeader* _insert, const uint32_t _nReturned) {
+		#ifdef STT_DEBUG_PAGE
+		printf("BackendPagePool atomicMerge: %p %i\n", _insert, _nReturned);
+		#endif
+		atomicMerge(_insert);
+		}
+		
+	void atomicMerge(pageHeader* _insert) {
+		// Adds @_insert to the atomic free list @this->_list
+		
+		// Remove head from atomic to working memory
+		pageHeader* workingList = atomicTake();
+		// _list is now NULL
+		
+		// merge the lists
+		if (workingList)
+			_insert->appendList(workingList);
+		workingList = _insert;
+		
+		// replace NULL head with the working list
+		pageHeader* nullList = NULL;
+		if (!_list.compare_exchange_strong(nullList, workingList)) {
+			// failed merge, this must have been due to pre-emption, re-merge
+			atomicMerge(workingList);
+			}
+		}
+
+	pageHeader* atomicTake () {
+		// Reads the value of @_list and replaces it with NULL
+		pageHeader* workingList = _list.load();
+		while (!_list.compare_exchange_weak(workingList, NULL));
+		return workingList; 
+		}
+	
+	void bulkFetch(pageHeader** store, const uint32_t nPages) {
+		// Yank off atomic list and merge the linked lists
+		if (!nPages) return;
+		pageHeader* h = atomicTake();
+		mMutex.lock();
+		if (h) {
+			if (allocFreeList)
+				allocFreeList->appendList(h);
+			else
+				allocFreeList = h;
+			}
+		
+		pageHeader* w = allocFreeList;
+		uint32_t i = 0;
+		if (w) {
+			for (i = 0; i < nPages && w->next; ++i) {
+				store[i] = w;
+				w = w->next;
+				}
+			}
+			
+		const uint32_t nAllocated = i;
+		if (i == nPages) {
+			// cut the linked list here
+			pageHeader* newHead = w->next;
+			w->next = NULL;
+			w->cachedWorkingEnd = NULL;
+			if (newHead)
+				newHead->cachedWorkingEnd = allocFreeList->cachedWorkingEnd;
+			allocFreeList = newHead;
+			mMutex.unlock();
+			
+			store[nPages-1]->next = NULL;
+			
+			
+			#if STT_DEBUG_PAGE
+				printf ("bulkFetch out path a, %i pages allocated\n", i);
+			#endif
+			return;
+			}
+		
+		// we have a parital linked list, we need system allocation
+		pageHeader* remaining = NULL;
+		pageHeader* leftovers = NULL;
+		ThreadSafePageAllocatorImpl::systemAllocate(mPageType, batchSize + nPages - nAllocated, nPages - nAllocated, &remaining, &leftovers);
+		
+		for (; i < nPages; ++i) {
+			store[i] = remaining;
+			remaining = remaining->next;
+			}
+		
+		// the entire free list has been consumed so we can dispose of it here
+		allocFreeList = leftovers;
+		
+		#if STT_DEBUG_PAGE
+		printf ("bulkFetch %s, %i, %i\n", pageTypeEnumToString(mPageType), batchSize + nPages - nAllocated, nPages - nAllocated);
+		int cnt = 0;
+		pageHeader* tail = allocFreeList->endCounting(cnt);
+		printf ("allocFreeList %p %p %p %p %i\n", allocFreeList, allocFreeList->next, allocFreeList->cachedWorkingEnd, tail, cnt);
+		#endif
+		
+		mMutex.unlock();
+		}
+	};
+
+class ThreadLocalPagePool {
+public:
+	// Thread_local page allocator
+	pageHeader* freelist;
+	pageTypeEnum mPageType;
+	int nPagesInFreeList;
+	
+	// tuning parameters
+	int requestAmount;	// no pages avaliable? request this many
+	int maxFreeListAmount; // more pages than this -> (send > requestAmount) back to main
+	
+	ThreadLocalPagePool() {
+		freelist = NULL;
+		mPageType = pageTypeEnum::PAGE_TYPE_UNSET;
+		nPagesInFreeList = 0;
+		
+		requestAmount = 10;
+		maxFreeListAmount = 20;
+		}
+		
+	~ThreadLocalPagePool() {
+		#ifdef STT_DEBUG_PAGE
+			printf("~ThreadLocalPagePool\n");
+			dbg_print_status();
+		#endif
+		returnPagesToGlobalPool(freelist, nPagesInFreeList);
+		freelist = NULL;
+		}
+		
+	void dbg_print_status() {
+		#ifdef STT_DEBUG_PAGE
+			int fll = freelist ? freelist->listLength() : 0;
+			printf("\tThreadLocalPagePool (%s): %p -> %p, %i/%i\n", pageTypeEnumToString(mPageType), freelist, freelist ? freelist->cachedWorkingEnd : NULL, fll, nPagesInFreeList);
+			if (fll != nPagesInFreeList)
+				dbg_dump_freelist();
+			stt_assert (fll == nPagesInFreeList, "linked list is corrupt");
+		#endif
+		}
+		
+	void dbg_dump_freelist() {
+		#ifdef STT_DEBUG_PAGE
+			int i = 0;
+			pageHeader* tmp = freelist;
+			while (tmp) {
+				printf("\tThreadLocalPagePool: Freelist %i: %p\n", i, tmp);
+				tmp = tmp->next;
+				i++;
+				}
+		#endif
+		}
+		
+	inline void dbgMarkPageAllocated(pageHeader* page) {
+		#ifdef STT_DEBUG_PAGE
+			printf("ThreadLocalPagePool: Allocationg page %p\n", page);
+		#endif
+		}
+	inline void dbgMarkPageFreed(pageHeader* page) {
+		#ifdef STT_DEBUG_PAGE
+			printf("ThreadLocalPagePool: Freeing page %p\n", page);
+		#endif
+		}
+	inline void dbgMarkPageFreedList(pageHeader* pagesLinkedList) {
+		#ifdef STT_DEBUG_PAGE
+			pageHeader* tmp = pagesLinkedList;
+			while (tmp) {
+				dbgMarkPageFreed(tmp);
+				tmp = tmp->next;
+				}
+		#endif
+		}
+	
+	void allocPages(pageHeader** pages, const uint32_t nPages) {
+		#ifdef STT_DEBUG_PAGE
+				printf("ThreadLocalPagePool allocPages: nPages: %i, freelist length: %i, %i\n", nPages, freelist ? freelist->listLength() : 0, nPagesInFreeList);
+		#endif
+			
+		uint32_t count = 0;
+		if (freelist) {
+			pageHeader* workingEnd = freelist->cachedWorkingEnd;
+			while (freelist && count < nPages) {
+				pages[count] = freelist;
+				dbgMarkPageAllocated(pages[count]);
+				count++;
+				freelist = freelist->next;
+				}
+			if (freelist)
+				freelist->cachedWorkingEnd = workingEnd;
+			}
+		if (count == nPages) {
+			nPagesInFreeList -= count;
+			return;
+			}
+		if (count < nPages) {
+			// we are out of pages, request pages from TSPA (locking)
+			const uint32_t countInit = count;
+			const uint32_t want = requestAmount + nPages - count;	// Batch size + (num needed for this request)
+			pageHeader* localStore[want];
+			
+			#ifdef STT_DEBUG_PAGE
+				printf("ThreadLocalPagePool fetching from backend want: %i, nPages: %i, count: %i, (nPages - countInit): %i, requestAmount: %i\n", want, nPages, count, (nPages-countInit), requestAmount);
+			#endif
+			
+			if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
+				ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.bulkFetch(&localStore[0], want);
+			else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
+				ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList.bulkFetch(&localStore[0], want);
+			else
+				abort();
+			
+			#ifdef STT_DEBUG_PAGE
+			printf("ThreadLocalPagePool 0 localStore:\n");
+			for (uint32_t i = 0; i < want; ++i) {
+				printf("\t%i: %p", i, localStore[i]);
+				}
+				printf("\n");
+			#endif
+			
+			uint32_t idx = 0;
+			for (;count < nPages; ++count) {
+				pages[count] = localStore[idx];
+				dbgMarkPageAllocated(pages[count]);
+				++idx;
+				}
+					
+			#ifdef STT_DEBUG_PAGE
+			printf("ThreadLocalPagePool 1 allocPages:\n");
+				stt_assert(freelist == NULL, "freelist is null");
+			#endif
+			freelist = localStore[nPages - countInit];
+			freelist->cachedWorkingEnd = localStore[want-1];
+			nPagesInFreeList = requestAmount;
+			
+			#ifdef STT_DEBUG_PAGE
+			printf("ThreadLocalPagePool 2 allocPages:\n");
+				dbg_print_status();
+			#endif
+			}
+		}
+		
+	
+	void freePages(pageHeader** pages, const uint32_t nPages) {
+		// assembles pages into a linked list, then adds to the freelist
+		if (!nPages) return;
+		freePagesList(pageHeader::buildList(pages, nPages), nPages);
+		}
+		
+	void freePagesList(pageHeader* pagesLinkedList, const uint32_t knownCount = 0) {
+		// frees an already prepared linked list of pages
+		// if the number of pages is not known then knownCount 
+		dbg_dump_freelist();
+		
+		uint32_t realKnownCount = knownCount;
+		if (!realKnownCount) {
+			pageHeader* tmp = pagesLinkedList;
+			while (tmp) {
+				tmp = tmp->next;
+				realKnownCount++;
+				}
+			}
+		dbgMarkPageFreedList(pagesLinkedList);
+			
+		nPagesInFreeList += realKnownCount;	
+		
+		if (freelist)
+			pagesLinkedList->appendList(freelist);
+		freelist = pagesLinkedList;
+		
+		if (nPagesInFreeList > maxFreeListAmount) {
+			pageHeader* returnList = freelist->splitList(requestAmount);
+			const uint32_t nReturned = nPagesInFreeList - requestAmount;
+			returnPagesToGlobalPool(returnList, nReturned);			
+			}
+			
+		dbg_dump_freelist();
+		}
+		
+	void returnPagesToGlobalPool(pageHeader* returnList, const uint32_t nReturned) {
+		if (!returnList) return;
+		nPagesInFreeList -= nReturned;
+		// Return pages to main cache
+		if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
+			ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.atomicMerge(returnList, nReturned);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
+			ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList.atomicMerge(returnList, nReturned);
+		else
+			abort();
+		}
+	};
+
+struct PATL_Data {
+	ThreadLocalPagePool pageAlloc;
+	ThreadLocalPagePool jumboPageAlloc;
+	
+	PATL_Data() {
+		pageAlloc.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
+		jumboPageAlloc.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		}
+		
+	~PATL_Data() {
+		#ifdef STT_DEBUG_PAGE
+			printf("~PATL_Data\n");
+		#endif
+		}
+	};
+	
+class ThreadSafePageAllocatorImpl {
+	/// Allocates pageI's
+public:
+	STT_TLS_WRAPPER mTls; // Wraps the thread_local 
+		
+	BackendPagePool PageGlobalFreeList; // global free-list
+	BackendPagePool JumboGlobalFreeList;
+	
+	ThreadSafePageAllocatorImpl() {
+		PageGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
+		JumboGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		
+		initThreadLocalAllocators(); // init for this thread
+		}
+	~ThreadSafePageAllocatorImpl() {
+		cleanupGlobalFreeLists();
+		}
+	
+	static uint8_t* raw_alloc(const uint64_t sz) { return new uint8_t[sz]; }
+	static void raw_free(uint8_t* ptr, const uint64_t sz) { delete[] ptr; }
+	
+	static ThreadSafePageAllocatorImpl& get() {
+		static ThreadSafePageAllocatorImpl Instance;
+		return Instance;
+		}
+		
+	inline void perf_warning(const char * msg) {
+		printf("stt::ThreadSafePageAllocator WARNING: %s\n", msg);
+		}
+		
+	void initThreadLocalAllocators() {
+		PATL_Data* r = mTls.getTlsData();
+		if (!r)
+			mTls.setTlsData(new PATL_Data);
+		}
+	void cleanupThreadLocalAllocators() {
+		PATL_Data* r = ThreadSafePageAllocatorImpl::get().mTls.getTlsData();
+		if (r) delete r;
+		mTls.setTlsData(NULL);
+		}
+	void cleanupGlobalFreeLists() {
+		PageGlobalFreeList.freeAll();
+		JumboGlobalFreeList.freeAll();
+		}
+	PATL_Data* getThreadLocalAllocators() {
+		return mTls.getTlsData();
+		}
+	
+	// Invokes the thread_local allocators
+	void allocPages(pageI** pages, const uint32_t nPages) {
+		PATL_Data* LA = getThreadLocalAllocators();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: allocPages() without thread_local pools, using global pool");
+			PageGlobalFreeList.bulkFetch((pageHeader**) pages, nPages);
+			return;
+			}
+		LA->pageAlloc.allocPages((pageHeader**) pages, nPages);
+		}
+	
+	void freePages(pageI** pages, const uint32_t nPages) {
+		PATL_Data* LA = getThreadLocalAllocators();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freePages() without thread_local pools, using global pool");
+			PageGlobalFreeList.freePages((pageHeader**) pages, nPages);
+			return;
+			}
+		LA->pageAlloc.freePages((pageHeader**) pages, nPages);
+		}
+	
+	void freePagesList(pageI* pageList) {
+		PATL_Data* LA = getThreadLocalAllocators();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freePagesList() without thread_local pools, using global pool");
+			PageGlobalFreeList.atomicMerge((pageHeader*) pageList);
+			return;
+			}
+		LA->pageAlloc.freePagesList((pageHeader*) pageList);
+		}
+	
+	void allocJumboPages(pageI** pages, const uint32_t nPages) {
+		PATL_Data* LA = getThreadLocalAllocators();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: allocJumboPages() without thread_local pools, using global pool");
+			JumboGlobalFreeList.bulkFetch((pageHeader**) pages, nPages);
+			return;
+			}
+		LA->jumboPageAlloc.allocPages((pageHeader**) pages, nPages);
+		}
+	
+	void freeJumboPages(pageI** pages, const uint32_t nPages) {
+		PATL_Data* LA = getThreadLocalAllocators();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freeJumboPages() without thread_local pools, using global pool");
+			JumboGlobalFreeList.freePages((pageHeader**) pages, nPages);
+			return;
+			}
+		LA->jumboPageAlloc.freePages((pageHeader**) pages, nPages);
+		}
+			
+	// Used as last resort
+	static void systemAllocate(const pageTypeEnum mPageType, const uint32_t nPagesTotal, const uint32_t nSplit, pageHeader** groupA, pageHeader** groupB) {
+		// Group A & B are pointers to pointers, NOT arrays of pointers
+		if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
+			systemAllocate_impl<pageI>(nPagesTotal, nSplit, groupA, groupB);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
+			systemAllocate_impl<jumboPageI>(nPagesTotal, nSplit, groupA, groupB);
+		else
+			abort();
+		}
+		
+	template <typename PAGE_TYPE>
+	static void systemAllocate_impl(const uint32_t nPagesTotal, const uint32_t nSplit, pageHeader** groupA, pageHeader** groupB) {
+		// Group A & B are pointers to pointers, NOT arrays of pointers
+		// allocates at least nPagesTotal, and returns (nSplit) into linked list groupA and the rest into linked list groupB
+		
+		#ifdef STT_DEBUG_PAGE
+			printf("Allocating %i (%i) pages\n", nPagesTotal, nSplit);
+		#endif
+		
+		pageHeader* ph[nPagesTotal];
+		ph[0] = (pageHeader*) raw_alloc(sizeof(PAGE_TYPE));
+		for (uint i = 1; i < nPagesTotal; ++i) {
+			ph[i] = (pageHeader*) raw_alloc(sizeof(PAGE_TYPE));
+			ph[i-1]->next = ph[i];
+			}
+		
+		// are we splitting?
+		if (nSplit > 0) {
+			ph[nSplit-1]->next = NULL;
+			*groupA = ph[0];
+			*groupB = ph[nSplit];
+			
+			ph[0]->cachedWorkingEnd = ph[nSplit-1];
+			ph[nSplit]->cachedWorkingEnd = ph[nPagesTotal-1];
+			}
+		else {
+			*groupA = NULL;
+			*groupB = ph[0];
+			ph[0]->cachedWorkingEnd = ph[nPagesTotal-1];
+			}
+		}
+		
+	static void systemFreeList(pageHeader* head) {
+		#ifdef STT_DEBUG_PAGE
+			uint32_t nPagesTotal = 0;
+		#endif
+		pageHeader* w = head;
+		while (w) {
+			pageHeader* n = w->next;
+			raw_free((uint8_t*) w, 0);
+			w = n;
+			#ifdef STT_DEBUG_PAGE
+				nPagesTotal++;
+			#endif
+			}
+			
+		#ifdef STT_DEBUG_PAGE
+			printf("Freeing %i pages\n", nPagesTotal);
+		#endif
+		}
+	};
+	
+}
+
+
+

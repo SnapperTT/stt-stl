@@ -1,81 +1,143 @@
 #hdr
+namespace stt {
+	template<typename T, typename P>
+	struct pageQueueImpl;
+	
+	template <typename T>
+	using pageQueue = pageQueueImpl<T,pageI>;
+	}
 #end
 
 #src
 #end
 
 namespace stt {
-	template<typename T, typename P = pageI>
+	template<typename T, typename P>
 	struct pageQueueImpl {
-		P p;
-		
-		inline pageQueueImpl() {
-			p.ph.initToZero();
-			static_assert(sizeof (pageQueueImpl<T,P>) == STT_PAGE_SIZE);
-			static_assert(std::is_trivially_copyable<T>::value);
-			}
-		
-		STT_CONSTEXPR__T* ptr()             { return (T*) &p._data[STT_PAGE_HEADER_SIZE]; }
-		const STT_CONSTEXPR__T* ptr() const { return (const T*) &p._data[STT_PAGE_HEADER_SIZE]; }
-		static STT_CONSTEXPR__size_t localCapacity()  { return P::capacity() / sizeof(T);  }
-		const uint32_t localSize() const { return p.ph.localSize; }
-		
-		
-		void push_back(const T & t) {
-			push_back_impl(t, this);
-			}
-		
-		void push_back_impl(const T & t, pageQueueImpl* head) {
-			if (p.ph.cachedWorkingEnd) {
-				return p.ph.cachedWorkingEnd->push_back_impl(t, head);
-				}
-			if (p.ph.localSize >= localCapacity()) {
-				// page is full! allocate a new page
-				#warning for existing page here
-				pageQueueImpl* PN = p.ph.wrangleAllocator()->allocatePage(sizeof(P));
-				PN->initToZero();
-				p.ph.next = PN;
-				head->p.ph.cachedWorkingEnd = PN;
-				
-				PN->p.ph.totalSize = p.ph.totalSize;
-				PN->push_back(t);
-				return;
-				}
-			ptr()[p.ph.localSize] = t;
-			p.ph.localSize++;
-			head->p.ph.totalSize++;
-			}
-			
-		inline T& get(const uint32_t localIndex) {
-			if (localIndex >= p.ph.localSize)
-				stt::error::array_out_of_bounds(localIndex, p.ph.localSize);
-			return ptr()[localIndex];
-			}
-		inline const T& get(const uint32_t localIndex) const {
-			if (localIndex >= p.ph.localSize)
-				stt::error::array_out_of_bounds(localIndex, p.ph.localSize);
-			return ptr()[localIndex];
-			}
+		P* head;
+		P* tail;
 		
 		struct iterator {
 			T* ptr;
 			T* localEnd;
-			pageQueueImpl* currentPage;
+			P* currentPage;
 			uint32_t idx;
 			
+			void init(P* page) {
+				currentPage = page;
+				if (currentPage) {
+					ptr = pageQueueImpl::pagePtr(currentPage);
+					localEnd = &ptr[currentPage->ph.localSize];
+					}
+				else {
+					ptr = NULL;
+					localEnd = NULL;
+					}
+				}
+			
 			inline typename pageQueueImpl<T,P>::iterator& operator++() {
-				while (ptr == localEnd && currentPage)
+				if (ptr) // do not increment a null pointer
+					ptr++;
+				while (ptr == localEnd && currentPage) // if we are at the end of a page then increment to the next non-empty page
 					incr_nonInline();
-				ptr++;
+				return *this;
 				}
 				
 			void incr_nonInline() {
-				currentPage = currentPage->next;
-				ptr = currentPage->ptr();
-				localEnd = ptr[currentPage->p.ph.localSize];
+				currentPage = (P*) currentPage->ph.next;
+				if (currentPage) {
+					ptr = pageQueueImpl::pagePtr(currentPage);
+					localEnd = &ptr[currentPage->ph.localSize];
+					}
+				else {
+					ptr = NULL;
+					localEnd = NULL;
+					}
 				}
 				
 			inline bool operator!=(const iterator & other) const { return ptr != other.ptr; }
+			inline T operator* () { return *ptr; }
 			};
+		
+		inline pageQueueImpl () : head(NULL), tail(NULL) {}
+		~pageQueueImpl() {
+			clear();
+			}
+		
+		// Allocators/deallocators go here
+		static P* allocPage () {
+			P* p = ThreadSafePageAllocatorTemplates::allocGeneric<P>();
+			p->ph.initToZero();
+			return p;
+			}
+		static void freePage(P* page) {
+			ThreadSafePageAllocatorTemplates::freeGeneric<P>(page);
+			}
+		static void freePagesList(P* pageList) {
+			ThreadSafePageAllocatorTemplates::freeGenericList<P>(pageList);
+			}
+		
+		static STT_CONSTEXPR__size_t pageLocalCapacity()         { return P::capacity() / sizeof(T);  }
+		static STT_CONSTEXPR__T* pagePtr(P* const p)             { return (T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
+		static const STT_CONSTEXPR__T* pagePtr(const P* const p) { return (const T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
+		
+		// std::vector like stuff goes here:
+		void clear() {
+			if constexpr(std::is_trivially_destructible<T>::value) {
+				head->ph.cachedWorkingEnd = (pageHeader*) tail;
+				freePagesList(head);
+				}
+			else {
+				P* w = head;
+				while (w) {
+					P* t = w;
+					w = (P*) w->ph.next;
+					for (uint32_t i = 0; i < t.ph.localSize; ++i)
+						pagePtr(t)[i].~T();
+					freePage(t);
+					}
+				}
+			head = NULL;
+			tail = NULL;
+			}
+		
+		void extendTailIfRequired() {
+			if (!tail) {
+				head = allocPage();
+				tail = head;
+				}
+			if (tail->ph.localSize >= pageLocalCapacity()) {
+				tail->ph.next = (pageHeader*) allocPage();
+				tail = (P*) tail->ph.next;
+				}
+			}
+		
+		inline void push_back(const T& t) {
+			extendTailIfRequired();
+			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(t);
+			tail->ph.localSize++;
+			head->ph.totalSize++;
+			}
+		
+		inline void push_back(T__MVSEM t) {
+			printf("move semantics!\n");
+			extendTailIfRequired();
+			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(std::move(t));
+			tail->ph.localSize++;
+			head->ph.totalSize++;
+			}
+			
+		iterator begin() {
+			iterator it;
+			it.init(head);
+			return  it;
+			}
+			
+		iterator end() {
+			iterator it;
+			it.init(NULL);
+			return  it;
+			}
+		
 		};
 	}
