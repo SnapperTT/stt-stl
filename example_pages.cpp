@@ -42,8 +42,8 @@ int main (int argc, char * * argv)
                                   {
 	stt::ThreadSafePageAllocator::initThreadLocalAllocators(); // must be called at the start of the thread
 	
-	stt::pageI* p = stt::ThreadSafePageAllocator::allocPage();
-	stt::pageI* pp[13];
+	stt::pageU* p = stt::ThreadSafePageAllocator::allocPage();
+	stt::pageU* pp[13];
 	stt::ThreadSafePageAllocator::allocPages(&pp[0], 13);
 	std::cout << p << std::endl;
 	stt::ThreadSafePageAllocator::freePage(p);
@@ -59,10 +59,10 @@ int main (int argc, char * * argv)
 	
 	printf("pq values....\n");
 	for (const biglyInt& a : pq)
-		printf("\t%i\n", a.value);
+		printf("\t%li\n", a.value);
 		
 	for (auto itt = pq.begin() ; itt != pq.end(); ++itt) {
-		printf("\t%p: %i\n", itt.currentPage, (*itt).value);
+		printf("\t%p: %li\n", itt.currentPage, (*itt).value);
 		}
 	
 }

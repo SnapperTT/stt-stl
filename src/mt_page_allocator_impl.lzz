@@ -456,7 +456,7 @@ struct PATL_Data {
 	};
 	
 class ThreadSafePageAllocatorImpl {
-	/// Allocates pageI's
+	/// Allocates pageU's
 public:
 	STT_TLS_WRAPPER mTls; // Wraps the thread_local 
 		
@@ -504,7 +504,7 @@ public:
 		}
 	
 	// Invokes the thread_local allocators
-	void allocPages(pageI** pages, const uint32_t nPages) {
+	void allocPages(pageU** pages, const uint32_t nPages) {
 		PATL_Data* LA = getThreadLocalAllocators();
 		if (!LA) {
 			// free after TL shutdown!
@@ -515,7 +515,7 @@ public:
 		LA->pageAlloc.allocPages((pageHeader**) pages, nPages);
 		}
 	
-	void freePages(pageI** pages, const uint32_t nPages) {
+	void freePages(pageU** pages, const uint32_t nPages) {
 		PATL_Data* LA = getThreadLocalAllocators();
 		if (!LA) {
 			// free after TL shutdown!
@@ -526,7 +526,7 @@ public:
 		LA->pageAlloc.freePages((pageHeader**) pages, nPages);
 		}
 	
-	void freePagesList(pageI* pageList) {
+	void freePagesList(pageU* pageList) {
 		PATL_Data* LA = getThreadLocalAllocators();
 		if (!LA) {
 			// free after TL shutdown!
@@ -537,7 +537,7 @@ public:
 		LA->pageAlloc.freePagesList((pageHeader*) pageList);
 		}
 	
-	void allocJumboPages(pageI** pages, const uint32_t nPages) {
+	void allocJumboPages(pageU** pages, const uint32_t nPages) {
 		PATL_Data* LA = getThreadLocalAllocators();
 		if (!LA) {
 			// free after TL shutdown!
@@ -548,7 +548,7 @@ public:
 		LA->jumboPageAlloc.allocPages((pageHeader**) pages, nPages);
 		}
 	
-	void freeJumboPages(pageI** pages, const uint32_t nPages) {
+	void freeJumboPages(pageU** pages, const uint32_t nPages) {
 		PATL_Data* LA = getThreadLocalAllocators();
 		if (!LA) {
 			// free after TL shutdown!
@@ -563,9 +563,9 @@ public:
 	static void systemAllocate(const pageTypeEnum mPageType, const uint32_t nPagesTotal, const uint32_t nSplit, pageHeader** groupA, pageHeader** groupB) {
 		// Group A & B are pointers to pointers, NOT arrays of pointers
 		if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
-			systemAllocate_impl<pageI>(nPagesTotal, nSplit, groupA, groupB);
+			systemAllocate_impl<pageU>(nPagesTotal, nSplit, groupA, groupB);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
-			systemAllocate_impl<jumboPageI>(nPagesTotal, nSplit, groupA, groupB);
+			systemAllocate_impl<jumboPageU>(nPagesTotal, nSplit, groupA, groupB);
 		else
 			abort();
 		}
@@ -622,6 +622,44 @@ public:
 		}
 	};
 	
+	/*
+	class page_based_allocator : public allocatorI {
+	public:
+		static page_based_allocator m_static_page_based_allocator;
+		
+		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) {
+			if (size < pageU::capacity()) {
+				pageU* p = ThreadSafePageAllocator::allocPage();
+				p->initHeader();
+				return p->ptr();
+				}
+			if (size < jumboPageU::capacity()) {
+				jumboPageU* p = ThreadSafePageAllocator::allocJumbo();
+				p->initHeader();
+				return p->ptr();
+				}
+			pageHeader* ph = stt_malloc(size + STT_PAGE_HEADER_SIZE);
+			ph->initToZero();
+			return ph->toPayload();
+			}
+			
+		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) {
+			if (!ptr) return;
+			pageHeader* ph = pageHeader::fromPayload(ptr);
+			pageTypeEnum en = ph->getPageType();
+			if (en == pageTypeEnum::PAGE_TYPE_NORMAL) {
+				ThreadSafePageAllocator::freePage(ph);
+				return;
+				}
+			if (en == pageTypeEnum::PAGE_TYPE_JUMBO) {
+				ThreadSafePageAllocator::freeJumbo(ph);
+				return;
+				}
+			stt_free((void*) ph);
+			}
+			
+		};
+		*/
 }
 
 

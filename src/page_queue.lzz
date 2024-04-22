@@ -4,7 +4,7 @@ namespace stt {
 	struct pageQueueImpl;
 	
 	template <typename T>
-	using pageQueue = pageQueueImpl<T,pageI>;
+	using pageQueue = pageQueueImpl<T,pageU>;
 	}
 #end
 
@@ -67,7 +67,7 @@ namespace stt {
 		// Allocators/deallocators go here
 		static P* allocPage () {
 			P* p = ThreadSafePageAllocatorTemplates::allocGeneric<P>();
-			p->ph.initToZero();
+			p->initHeader();
 			return p;
 			}
 		static void freePage(P* page) {

@@ -9,10 +9,6 @@
 	#define STT_JUMBO_PAGE_SIZE 65520
 #endif
 
-namespace stt {
-	union pageI;
-	class PageAllocator;
-	}
 	
 #end
 
@@ -43,34 +39,24 @@ namespace stt {
 	
 	struct pageHeader {
 		// note: not all fields are used!
-		void* allocator;			  // (unused) what object controls the lifetime of this? If NULL then it is assumed that the global ThreadSafePageAllocatorImpl handles this
+		//void* allocator;			  // (unused) what object controls the lifetime of this? If NULL then it is assumed that the global ThreadSafePageAllocatorImpl handles this
 		pageHeader* next;			  // next page
 		pageHeader* cachedWorkingEnd; // (optional) if this is the head of a linked list then this is the end page, otherwise this is undefiend
+		uint64_t allocationInfo;	  // 
 		uint32_t localSize;			  // (optional) if this page is an array then this is the local size of the array
 		uint32_t totalSize;			  // (optional) if this is the head of a linked list of arrays then this is the running total
 		uint64_t useMask;			  // (optional) if this page is an bitmap then this is indicates which elements are used 
 		uint64_t _unused[3];
 		
 		inline void initToZero() {
-			allocator = NULL;
+			//allocator = NULL;
 			next = NULL;
 			cachedWorkingEnd = NULL;
+			allocationInfo = 0;
 			localSize = 0;
 			totalSize = 0;
 			useMask = 0;
 			}
-		
-		//inline PageAllocator* wrangleAllocator() const {
-		//	return allocator ? allocator : ???;
-		//	}
-			
-		//pageHeader* allocatePageAndInitToZero(const uint64_t pageSize) const {
-		//	PageAllocator* a = wrangleAllocator();
-		//	pageHeader* r = a->allocatePage(pageSize);
-		//	r->initToZero();
-		//	r->allocator = a;
-		//	return r;
-		//	}
 		
 		void appendList(pageHeader* other) {
 			// appends other to this list
@@ -132,27 +118,34 @@ namespace stt {
 			endCounting(cnt);
 			return cnt;
 			}
-		};
+			
+		inline uint8_t* toPayload() {
+			uint8_t* ptr = (uint8_t*) this;
+			return &ptr[STT_PAGE_HEADER_SIZE];
+			}
 		
-	union pageI {
+		inline static pageHeader* fromPayload(uint8_t* ptr) {
+			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
+			return (pageHeader*) ptr[-STT_PAGE_HEADER_SIZE];
+			}
+		};
+	
+	
+	template<unsigned int SIZE, pageTypeEnum ET>
+	union pageTemplate {
 		pageHeader ph;
 		uint8_t _data[STT_PAGE_SIZE];
 		
+		inline void initHeader() { ph.initToZero(); ph.allocationInfo = SIZE; }
 		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
 		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
-		static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
-		static STT_CONSTEXPR__pageTypeEnum getPageType() { return pageTypeEnum::PAGE_TYPE_NORMAL; }
+		static STT_CONSTEXPR__size_t capacity() { return SIZE - STT_PAGE_HEADER_SIZE;  }
+		static STT_CONSTEXPR__size_t storageSize() { return SIZE;  }
+		static STT_CONSTEXPR__pageTypeEnum getPageType() { return ET; }
 		};
-		
-	union jumboPageI {
-		pageHeader ph;
-		uint8_t _data[STT_JUMBO_PAGE_SIZE];
-		
-		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
-		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
-		static STT_CONSTEXPR__size_t capacity() { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
-		static STT_CONSTEXPR__pageTypeEnum getPageType() { return pageTypeEnum::PAGE_TYPE_JUMBO; }
-		};
+	
+	typedef pageTemplate<STT_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_NORMAL> pageU;
+	typedef pageTemplate<STT_JUMBO_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_JUMBO> jumboPageU;
 		
 	
 	//template <unsigned int USZ>
