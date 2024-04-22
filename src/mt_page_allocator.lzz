@@ -21,21 +21,21 @@ public:
 		}
 	
 	// PageI
-	static pageI* allocPage() {
-		// Allocates a single pageI
-		pageI* arr[1];
+	static pageU* allocPage() {
+		// Allocates a single pageU
+		pageU* arr[1];
 		ThreadSafePageAllocatorImpl::get().allocPages(&arr[0], 1);
 		return arr[0];
 		}
-	static void freePage(pageI* page) {
-		pageI* arr[1];
+	static void freePage(pageU* page) {
+		pageU* arr[1];
 		arr[0] = page;
 		ThreadSafePageAllocatorImpl::get().freePages(&arr[0], 1);
 		}
-	static void allocPages(pageI** pages, const uint32_t nPages) { ThreadSafePageAllocatorImpl::get().allocPages(pages, nPages); }
-	static void freePages(pageI** pages, const uint32_t nPages)  { ThreadSafePageAllocatorImpl::get().freePages(pages, nPages); }
+	static void allocPages(pageU** pages, const uint32_t nPages) { ThreadSafePageAllocatorImpl::get().allocPages(pages, nPages); }
+	static void freePages(pageU** pages, const uint32_t nPages)  { ThreadSafePageAllocatorImpl::get().freePages(pages, nPages); }
 	// Because a array of pages is internally converted into a linked list it is more efficent a linked list directly
-	static void freePagesList(pageI* pageLinkedList) { ThreadSafePageAllocatorImpl::get().freePagesList(pageLinkedList); }
+	static void freePagesList(pageU* pageLinkedList) { ThreadSafePageAllocatorImpl::get().freePagesList(pageLinkedList); }
 	};
 	
 namespace ThreadSafePageAllocatorTemplates {
@@ -47,10 +47,10 @@ namespace ThreadSafePageAllocatorTemplates {
 	template<typename T> void freeGenericList(T* t) { abort(); }
 	
 	
-	template<> inline pageI* allocGeneric()      { return ThreadSafePageAllocator::allocPage(); }
-	template<> inline void freeGeneric(pageI* t) { ThreadSafePageAllocator::freePage(t); }
-	template<> inline void allocGenericBatch(pageI** t, const uint32_t n) { ThreadSafePageAllocator::allocPages(t, n); }
-	template<> inline void freeGenericBatch (pageI** t, const uint32_t n) { ThreadSafePageAllocator::freePages(t, n); }
-	template<> inline void freeGenericList(pageI* t) { ThreadSafePageAllocator::freePagesList(t); }
+	template<> inline pageU* allocGeneric()      { return ThreadSafePageAllocator::allocPage(); }
+	template<> inline void freeGeneric(pageU* t) { ThreadSafePageAllocator::freePage(t); }
+	template<> inline void allocGenericBatch(pageU** t, const uint32_t n) { ThreadSafePageAllocator::allocPages(t, n); }
+	template<> inline void freeGenericBatch (pageU** t, const uint32_t n) { ThreadSafePageAllocator::freePages(t, n); }
+	template<> inline void freeGenericList(pageU* t) { ThreadSafePageAllocator::freePagesList(t); }
 	}
 }

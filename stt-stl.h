@@ -1527,10 +1527,6 @@ namespace stt
 	#define STT_JUMBO_PAGE_SIZE 65520
 #endif
 
-namespace stt {
-	union pageI;
-	class PageAllocator;
-	}
 	
 #define LZZ_INLINE inline
 namespace stt
@@ -1550,9 +1546,9 @@ namespace stt
 {
   struct pageHeader
   {
-    void * allocator;
     pageHeader * next;
     pageHeader * cachedWorkingEnd;
+    uint64_t allocationInfo;
     uint32_t localSize;
     uint32_t totalSize;
     uint64_t useMask;
@@ -1564,43 +1560,97 @@ namespace stt
     pageHeader * end ();
     pageHeader * endCounting (int & countOut);
     int listLength ();
+    uint8_t * toPayload ();
+    static pageHeader * fromPayload (uint8_t * ptr);
   };
 }
 namespace stt
 {
-  union pageI
+  template <unsigned int SIZE, pageTypeEnum ET>
+  union pageTemplate
   {
     pageHeader ph;
     uint8_t (_data) [STT_PAGE_SIZE];
+    void initHeader ();
     constexpr void * ptr ();
     constexpr void const * ptr () const;
     static constexpr size_t capacity ();
+    static constexpr size_t storageSize ();
     static constexpr pageTypeEnum getPageType ();
   };
 }
 namespace stt
 {
-  union jumboPageI
-  {
-    pageHeader ph;
-    uint8_t (_data) [STT_JUMBO_PAGE_SIZE];
-    constexpr void * ptr ();
-    constexpr void const * ptr () const;
-    static constexpr size_t capacity ();
-    static constexpr pageTypeEnum getPageType ();
-  };
+  typedef pageTemplate <STT_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_NORMAL> pageU;
+}
+namespace stt
+{
+  typedef pageTemplate <STT_JUMBO_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_JUMBO> jumboPageU;
 }
 namespace stt
 {
   LZZ_INLINE void pageHeader::initToZero ()
                                          {
-			allocator = NULL;
+			//allocator = NULL;
 			next = NULL;
 			cachedWorkingEnd = NULL;
+			allocationInfo = 0;
 			localSize = 0;
 			totalSize = 0;
 			useMask = 0;
 			}
+}
+namespace stt
+{
+  LZZ_INLINE uint8_t * pageHeader::toPayload ()
+                                            {
+			uint8_t* ptr = (uint8_t*) this;
+			return &ptr[STT_PAGE_HEADER_SIZE];
+			}
+}
+namespace stt
+{
+  LZZ_INLINE pageHeader * pageHeader::fromPayload (uint8_t * ptr)
+                                                                    {
+			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
+			return (pageHeader*) ptr[-STT_PAGE_HEADER_SIZE];
+			}
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  LZZ_INLINE void pageTemplate <SIZE, ET>::initHeader ()
+                                         { ph.initToZero(); ph.allocationInfo = SIZE; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr void * pageTemplate <SIZE, ET>::ptr ()
+                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr void const * pageTemplate <SIZE, ET>::ptr () const
+                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr size_t pageTemplate <SIZE, ET>::capacity ()
+                                                        { return SIZE - STT_PAGE_HEADER_SIZE;  }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr size_t pageTemplate <SIZE, ET>::storageSize ()
+                                                           { return SIZE;  }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr pageTypeEnum pageTemplate <SIZE, ET>::getPageType ()
+                                                                 { return ET; }
 }
 #undef LZZ_INLINE
 #endif
@@ -1709,46 +1759,6 @@ namespace stt
 			endCounting(cnt);
 			return cnt;
 			}
-}
-namespace stt
-{
-  constexpr void * pageI::ptr ()
-                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
-}
-namespace stt
-{
-  constexpr void const * pageI::ptr () const
-                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
-}
-namespace stt
-{
-  constexpr size_t pageI::capacity ()
-                                                        { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
-}
-namespace stt
-{
-  constexpr pageTypeEnum pageI::getPageType ()
-                                                                 { return pageTypeEnum::PAGE_TYPE_NORMAL; }
-}
-namespace stt
-{
-  constexpr void * jumboPageI::ptr ()
-                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
-}
-namespace stt
-{
-  constexpr void const * jumboPageI::ptr () const
-                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
-}
-namespace stt
-{
-  constexpr size_t jumboPageI::capacity ()
-                                                        { return STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE;  }
-}
-namespace stt
-{
-  constexpr pageTypeEnum jumboPageI::getPageType ()
-                                                                 { return pageTypeEnum::PAGE_TYPE_JUMBO; }
 }
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE

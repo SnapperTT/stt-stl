@@ -16,7 +16,7 @@ Third problem: allocators. In `std` strings with different allocators are differ
 * string (`stt::string24`, `stt::string32`, `stt::string64`, `stt::string_base<N>`)
 * vector (`stt::vector24`, `stt::vector32`, `stt::vector64`, `stt::vector_base<T,N>`)
 * small_vector (`stt::small_vector<T,N_ELEMENTS,SSO_SIZE_T=uint8_t>`) (use `SSO_SIZE_T=uint16_t` if sizeof(`small_vector<T,N> > 254`)
-
+* `page` and `pageQueue`: see [PAGES.md](PAGES.md) for more details
 
 ## Requirements:
 C++17
