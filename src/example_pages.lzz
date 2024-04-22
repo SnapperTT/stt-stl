@@ -9,25 +9,48 @@
 #src
 #define STT_STL_IMPL 1
 #include "stt-stl.h"
-#define STT_DEBUG_PAGE 1
+//#define STT_DEBUG_PAGE 1
 #include "stt-pages.h"
 
 #include <iostream>
 #end
 
 
+struct biglyInt {
+	int64_t value;
+	int64_t padding[63];
+	};
+
 
 int main (int argc, char ** argv) {
-	stt::ThreadSafePageAllocator::initThreadLocalAllocators();
+	stt::ThreadSafePageAllocator::initThreadLocalAllocators(); // must be called at the start of the thread
 	
 	stt::pageI* p = stt::ThreadSafePageAllocator::allocPage();
-	stt::pageI* pp[137];
-	stt::ThreadSafePageAllocator::allocPages(&pp[0], 137);
+	stt::pageI* pp[13];
+	stt::ThreadSafePageAllocator::allocPages(&pp[0], 13);
 	std::cout << p << std::endl;
 	stt::ThreadSafePageAllocator::freePage(p);
-	stt::ThreadSafePageAllocator::freePages(&pp[0], 137);
+	stt::ThreadSafePageAllocator::freePages(&pp[0], 13);
 	
-	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators();
-	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists();
+	{
+	stt::pageQueue<biglyInt> pq;
+	printf("Pushing back into pq....\n");
+	for (int i = 0; i < 10; ++i) {
+		biglyInt bi; bi.value = i;
+		pq.push_back(std::move(bi));
+		}
+	
+	printf("pq values....\n");
+	for (const biglyInt& a : pq)
+		printf("\t%i\n", a.value);
+		
+	for (auto itt = pq.begin() ; itt != pq.end(); ++itt) {
+		printf("\t%p: %i\n", itt.currentPage, (*itt).value);
+		}
+	
+}
+	
+	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators(); // must be called at the end of the thread
+	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists(); // must be called on program shutdown to free
 	return 1;
 	}

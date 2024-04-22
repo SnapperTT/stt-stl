@@ -101,6 +101,17 @@ namespace stt {
 			return r;
 			}
 		
+		static pageHeader* buildList(pageHeader** pages, const uint32_t nPages) {
+			// assembles pages into a linked list, returns the head
+			if (!nPages) return NULL;
+			for (uint32_t i = 0; i < nPages-1; ++i) {
+				pages[i]->next = pages[i+1];
+				}
+			pages[nPages-1]->next = NULL;
+			pages[0]->cachedWorkingEnd = pages[nPages-1];
+			return pages[0];
+			}
+		
 		pageHeader* end() {
 			// manually traverses to the end
 			pageHeader* w = this;
