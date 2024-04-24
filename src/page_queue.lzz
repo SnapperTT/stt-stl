@@ -1,3 +1,9 @@
+#define STT_PAGEQUEUE_NOCOPY(X) \
+private:								\
+	X(const X& other);					\
+	X& operator =(const X & other);		\
+public:	
+
 #hdr
 namespace stt {
 	template<typename T, typename P>
@@ -6,6 +12,8 @@ namespace stt {
 	template <typename T>
 	using pageQueue = pageQueueImpl<T,pageU>;
 	}
+
+#define STT_PAGEQUEUE_MVSEM pageQueueImpl&&
 #end
 
 #src
@@ -35,12 +43,11 @@ namespace stt {
 					}
 				}
 			
-			inline typename pageQueueImpl<T,P>::iterator& operator++() {
+			inline void incr() {
 				if (ptr) // do not increment a null pointer
 					ptr++;
 				while (ptr == localEnd && currentPage) // if we are at the end of a page then increment to the next non-empty page
 					incr_nonInline();
-				return *this;
 				}
 				
 			void incr_nonInline() {
@@ -55,14 +62,25 @@ namespace stt {
 					}
 				}
 				
+			inline typename pageQueueImpl<T,P>::iterator& operator++() {
+				incr();
+				return *this;
+				}
+				
 			inline bool operator!=(const iterator & other) const { return ptr != other.ptr; }
 			inline T operator* () { return *ptr; }
 			};
 		
+		//////////////////////////////////////////////////////////////////////////
 		inline pageQueueImpl () : head(NULL), tail(NULL) {}
-		~pageQueueImpl() {
-			clear();
-			}
+		~pageQueueImpl() { clear(); }
+		
+		// pageQueues cannot be copied, only moved
+		// move assign and move construct are needed for std::swap auto implementation
+		inline void move_impl(STT_PAGEQUEUE_MVSEM other) { head = other.head; tail = other.tail; other.head = NULL; other.tail = NULL; }
+		inline pageQueueImpl(STT_PAGEQUEUE_MVSEM other) { move_impl(std::move(other)); }
+		inline pageQueueImpl<T,P>& operator= (STT_PAGEQUEUE_MVSEM other) { clear(); move_impl(std::move(other)); return *this; }
+		STT_PAGEQUEUE_NOCOPY(pageQueueImpl)
 		
 		// Allocators/deallocators go here
 		static P* allocPage () {
@@ -80,6 +98,8 @@ namespace stt {
 		static STT_CONSTEXPR__size_t pageLocalCapacity()         { return P::capacity() / sizeof(T);  }
 		static STT_CONSTEXPR__T* pagePtr(P* const p)             { return (T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
 		static const STT_CONSTEXPR__T* pagePtr(const P* const p) { return (const T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
+		
+		inline uint32_t size() const { return head ? head->ph.totalSize : 0; }
 		
 		// std::vector like stuff goes here:
 		void clear() {
@@ -99,6 +119,39 @@ namespace stt {
 				}
 			head = NULL;
 			tail = NULL;
+			}
+			
+		void clearKeepingFirstPage() {
+			// Clears the pageQueue but keeps the first page
+			if (head && head->next) {
+				pageQueueImpl tmp;
+				tmp.head = head->next;
+				tmp.head->ph.cachedWorkingEnd = tail;
+				tmp.tail = tail;
+				tmp.clear();
+				head = NULL;
+				tail = head; 
+				}
+			}
+		
+		void swap(pageQueueImpl& other) {
+			std::swap(head, other.head);
+			std::swap(tail, other.tail);
+			}
+		
+		void concatenate(pageQueueImpl& other) {
+			if (!other.head)
+				return;
+			if (tail) {
+				tail->ph.next = (pageHeader*) other.head;
+				tail = other.tail;
+				}
+			else {
+				head = other.head;
+				tail = other.tail;
+				other.head = NULL;
+				other.tail = NULL;
+				}
 			}
 		
 		void extendTailIfRequired() {
@@ -140,4 +193,55 @@ namespace stt {
 			}
 		
 		};
+		
+
+	class PageBumpAllocatedStorage {
+	public:
+		// todo: move to seperate file
+		// used for collections of small objects with similar lifetimes. Stores them in a page
+		pageU* page; // custom fields being used - totalSize = totalAllocations
+		
+		PageBumpAllocatedStorage() {
+			page = ThreadSafePageAllocator::allocPage();
+			page->initHeader();
+			}
+		
+		~PageBumpAllocatedStorage() {
+			stt_assert(page->ph.totalSize == 0, ""); //remaning allocations
+			ThreadSafePageAllocator::freePage(page);
+			page = NULL;
+			}
+		
+		template <typename T>
+		inline static STT_CONSTEXPR__uint32_t roundedSizeOf() { return sizeof(T); }
+		
+		inline bool contains(void* ptr) const {
+			uintptr_t pagei = uintptr_t(page);
+			uintptr_t ptri = uintptr_t(ptr);
+			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
+			}
+		
+		template <typename T>
+		T* allocate() {
+			T* r = (T*) &(page->ptr()[page->ph.localSize]);
+			page->ph.localSize += roundedSizeOf<T>();
+			page->ph.totalSize++;
+			new (r) T();
+			return r;
+			}
+		
+		template <typename T>
+		void free(T* t) {
+			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
+				page->ph.localSize -= sizeof(T);
+				}
+			page->ph.totalSize--;
+			t->~T();
+			}
+			
+		uint32_t getNumAllocations() const { return page->ph.totalSize; }
+		uint32_t getFreeBytes() const { return page->capacity() - page->ph.localSize; }
+		};
 	}
+
+

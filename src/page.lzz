@@ -126,7 +126,7 @@ namespace stt {
 		
 		inline static pageHeader* fromPayload(uint8_t* ptr) {
 			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
-			return (pageHeader*) ptr[-STT_PAGE_HEADER_SIZE];
+			return (pageHeader*) &ptr[-STT_PAGE_HEADER_SIZE];
 			}
 		};
 	
@@ -137,8 +137,8 @@ namespace stt {
 		uint8_t _data[STT_PAGE_SIZE];
 		
 		inline void initHeader() { ph.initToZero(); ph.allocationInfo = SIZE; }
-		STT_CONSTEXPR__void* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
-		const STT_CONSTEXPR__void* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
+		STT_CONSTEXPR__uint8_t* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }
+		const STT_CONSTEXPR__uint8_t* ptr() const { return &_data[STT_PAGE_HEADER_SIZE]; }
 		static STT_CONSTEXPR__size_t capacity() { return SIZE - STT_PAGE_HEADER_SIZE;  }
 		static STT_CONSTEXPR__size_t storageSize() { return SIZE;  }
 		static STT_CONSTEXPR__pageTypeEnum getPageType() { return ET; }
