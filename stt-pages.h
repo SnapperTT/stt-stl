@@ -1341,8 +1341,10 @@ namespace stt
   void pageQueueImpl <T, P>::clear ()
                              {
 			if constexpr(std::is_trivially_destructible<T>::value) {
-				head->ph.cachedWorkingEnd = (pageHeader*) tail;
-				freePagesList(head);
+				if (head) {
+					head->ph.cachedWorkingEnd = (pageHeader*) tail;
+					freePagesList(head);
+					}
 				}
 			else {
 				P* w = head;
