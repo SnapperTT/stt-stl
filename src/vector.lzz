@@ -429,7 +429,7 @@ public:
 			iterator itt = first;// ibegin + (first - ibegin); // needed for const correctness
 			
 			// move in place
-			for (; inext != iend; itt++, inext++)
+			for (; inext != iend; ++itt, ++inext)
 				new (itt) T(std::move(*inext));
 			
 			sso.resize_impl(sso.size()-sizeof(T)*count, false);

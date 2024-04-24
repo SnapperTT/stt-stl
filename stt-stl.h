@@ -1572,8 +1572,8 @@ namespace stt
     pageHeader ph;
     uint8_t (_data) [STT_PAGE_SIZE];
     void initHeader ();
-    constexpr void * ptr ();
-    constexpr void const * ptr () const;
+    constexpr uint8_t * ptr ();
+    constexpr uint8_t const * ptr () const;
     static constexpr size_t capacity ();
     static constexpr size_t storageSize ();
     static constexpr pageTypeEnum getPageType ();
@@ -1613,7 +1613,7 @@ namespace stt
   LZZ_INLINE pageHeader * pageHeader::fromPayload (uint8_t * ptr)
                                                                     {
 			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
-			return (pageHeader*) ptr[-STT_PAGE_HEADER_SIZE];
+			return (pageHeader*) &ptr[-STT_PAGE_HEADER_SIZE];
 			}
 }
 namespace stt
@@ -1625,14 +1625,14 @@ namespace stt
 namespace stt
 {
   template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr void * pageTemplate <SIZE, ET>::ptr ()
-                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
+  constexpr uint8_t * pageTemplate <SIZE, ET>::ptr ()
+                                                          { return &_data[STT_PAGE_HEADER_SIZE]; }
 }
 namespace stt
 {
   template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr void const * pageTemplate <SIZE, ET>::ptr () const
-                                                       { return &_data[STT_PAGE_HEADER_SIZE]; }
+  constexpr uint8_t const * pageTemplate <SIZE, ET>::ptr () const
+                                                          { return &_data[STT_PAGE_HEADER_SIZE]; }
 }
 namespace stt
 {
@@ -2203,7 +2203,7 @@ public:
 			iterator itt = first;// ibegin + (first - ibegin); // needed for const correctness
 			
 			// move in place
-			for (; inext != iend; itt++, inext++)
+			for (; inext != iend; ++itt, ++inext)
 				new (itt) T(std::move(*inext));
 			
 			sso.resize_impl(sso.size()-sizeof(T)*count, false);
