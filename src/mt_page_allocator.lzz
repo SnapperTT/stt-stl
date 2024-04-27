@@ -40,11 +40,11 @@ public:
 	
 namespace ThreadSafePageAllocatorTemplates {
 	// Used for template stuff that is forbidden in classes
-	template<typename T> T*   allocGeneric()    { abort(); return NULL; }
-	template<typename T> void freeGeneric(T* t) { abort(); }
-	template<typename T> void allocGenericBatch(T** t, const uint32_t n) { abort(); }
-	template<typename T> void freeGenericBatch (T** t, const uint32_t n) { abort(); }
-	template<typename T> void freeGenericList(T* t) { abort(); }
+	template<typename T> T*   allocGeneric()    { STT_STL_ABORT(); return NULL; }
+	template<typename T> void freeGeneric(T* t) { STT_STL_ABORT(); }
+	template<typename T> void allocGenericBatch(T** t, const uint32_t n) { STT_STL_ABORT(); }
+	template<typename T> void freeGenericBatch (T** t, const uint32_t n) { STT_STL_ABORT(); }
+	template<typename T> void freeGenericList(T* t) { STT_STL_ABORT(); }
 	
 	
 	template<> inline pageU* allocGeneric()      { return ThreadSafePageAllocator::allocPage(); }

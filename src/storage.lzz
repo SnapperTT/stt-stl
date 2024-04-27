@@ -32,7 +32,7 @@ namespace stt {
 		void setAllocator(allocatorI* alloc) {
 			// You can only set an allocator once as swapping
 			// allocators is undefined behaviour
-			stt_assert(mAllocator != NULL, "Allocator is already set!");
+			STT_STL_ASSERT(mAllocator != NULL, "Allocator is already set!");
 			mAllocator = alloc;
 			}
 			

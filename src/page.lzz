@@ -101,15 +101,14 @@ namespace stt {
 		pageHeader* end() {
 			// manually traverses to the end
 			pageHeader* w = this;
-			while (w->next) { w = w->next; }
+			while (w) { w = w->next; }
 			return w;
 			}
 			
 		pageHeader* endCounting(int& countOut) {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
-			countOut++;
-			while (w->next) { countOut++; w = w->next; }
+			while (w) { countOut++; w = w->next; }
 			return w;
 			}
 			

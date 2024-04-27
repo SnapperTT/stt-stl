@@ -138,7 +138,7 @@ namespace stt {
 		inline void set_local_size(const storage_size_t sz) {
 			#if STT_STL_DEBUG
 			if constexpr(isAlwaysStore()) {
-				stt_assert(false, "set_local_size while isAlwaysStore true");
+				STT_STL_ASSERT(false, "set_local_size while isAlwaysStore true");
 				}
 			#endif
 			local_size_ref() = sz | sso_size_flag();																		
@@ -194,8 +194,8 @@ namespace stt {
 		void switchToSso_impl() {
 			// switching without checking capacity first is UB
 			#if STT_STL_DEBUG
-			stt_assert(d.store.mAllocator == 0, "allocator null check"); // do not deallocate if not null
-			stt_assert(!isAlwaysStore(), "always store check"); // do not deallocate if not null
+			STT_STL_ASSERT(d.store.mAllocator == 0, "allocator null check"); // do not deallocate if not null
+			STT_STL_ASSERT(!isAlwaysStore(), "always store check"); // do not deallocate if not null
 			#endif
 			storage store2 = d.store;
 			move_elements(&d.sso[0], store2.ptr, store2.size/element_size());

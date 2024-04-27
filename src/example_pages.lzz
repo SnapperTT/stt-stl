@@ -9,7 +9,7 @@
 #src
 #define STT_STL_IMPL 1
 #include "stt-stl.h"
-//#define STT_DEBUG_PAGE 1
+#define STT_DEBUG_PAGE 1
 #include "stt-pages.h"
 
 #include <iostream>
@@ -25,16 +25,17 @@ struct biglyInt {
 int main (int argc, char ** argv) {
 	stt::ThreadSafePageAllocator::initThreadLocalAllocators(); // must be called at the start of the thread
 	
+	// allocate and destroy some stuff
 	stt::pageU* p = stt::ThreadSafePageAllocator::allocPage();
 	stt::pageU* pp[13];
 	stt::ThreadSafePageAllocator::allocPages(&pp[0], 13);
-	std::cout << p << std::endl;
 	stt::ThreadSafePageAllocator::freePage(p);
 	stt::ThreadSafePageAllocator::freePages(&pp[0], 13);
 	
+	// test a page queue
 	{
 	stt::pageQueue<biglyInt> pq;
-	printf("Pushing back into pq....\n");
+	stt::stt_dbg_log("Pushing back into pq....\n");
 	for (int i = 0; i < 10; ++i) {
 		biglyInt bi; bi.value = i;
 		pq.push_back(std::move(bi));
@@ -42,13 +43,15 @@ int main (int argc, char ** argv) {
 	
 	printf("pq values....\n");
 	for (const biglyInt& a : pq)
-		printf("\t%li\n", a.value);
+		stt::stt_dbg_log("\t%li\n", a.value);
 		
 	for (auto itt = pq.begin() ; itt != pq.end(); ++itt) {
-		printf("\t%p: %li\n", itt.currentPage, (*itt).value);
+		stt::stt_dbg_log("\t%p: %li\n", itt.currentPage, (*itt).value);
 		}
+	}
 	
-}
+	stt::stt_dbg_log("sizeof string128 %i\n", sizeof(stt::string128));
+	stt::stt_dbg_log("sizeof string254 %i\n", sizeof(stt::string256));
 	
 	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators(); // must be called at the end of the thread
 	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists(); // must be called on program shutdown to free

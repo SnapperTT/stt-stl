@@ -41,7 +41,11 @@ A `page` is a union of `uint8_t[SIZE]` and a `pageHeader` class. When you
 
 ## Containers
 * pageQueue<T> - Like a `std::vector` but discontigious and does not allow random access. You can `push_back` and use ranged itteration to access. 
+* pageBump - A basic bump allocator, designed to be a bucket for objects with the same or similar lifetime
 
+##
+
+STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
 
 ## Requirements:
 C++17

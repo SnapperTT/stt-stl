@@ -53,8 +53,8 @@ namespace stt {
 	using string24 = string_base<24>; // warning: vector24 will alias if capacity > (2^24-1)
 	using string32 = string_base<32>;
 	using string64 = string_base<64>;
-	using string128 = string_base<128>;
-	using string252 = string_base<252>; // 252 + room for an int
+	using string128 = string_base<128>;	// 127 + room for an int
+	using string256 = string_base_traits<256, uint16_t>; // 252 + room for an int16
 	
 	
 	template <unsigned int N, typename SSO_SIZE_T>
