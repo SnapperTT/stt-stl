@@ -56,17 +56,26 @@ namespace stt {
 	inline storage_size_t stt_strlen(const char * __s) {
 		return strlen(__s);
 		}
-	
-	inline void stt_assert(int expression, const char * expr) {
-		STT_STL_ASSERT(expression && expr);
-		}
-		
+			
 	inline void* stt_malloc(const uint64_t __size) {
 		return malloc(__size);
 		}
 	
 	inline void stt_free(void* __ptr) {
 		free(__ptr);
+		}
+	
+	void stt_dbg_log(const char* fmt, ...) {
+		// wraps printf so it can be overriden by another logging funciton
+		const uint32_t buffSz = 1024;
+		char buff[buffSz];
+		
+		va_list args;
+		va_start(args, fmt);
+		vsnprintf(buff, buffSz-1, fmt, args);
+		va_end(args);
+		
+		STT_STL_PRINT(buff);
 		}
 	
 	uint64_t hash_low(const uint64_t seed, const uint8_t* ptr, const alloc_size_t size) {
@@ -169,11 +178,11 @@ namespace stt {
 	// Errors
 	namespace error {
 		void array_out_of_bounds(const storage_size_t index, const storage_size_t size) {
-			STT_STL_ASSERT(0 && "index < size");
+			STT_STL_ASSERT(0, "index < size");
 			}
 		
 		void bad_alloc(const alloc_size_t size, const char* message) {
-			STT_STL_ASSERT(0 && "index < size" && message);
+			STT_STL_ASSERT(0, "index < size (check message)");
 			}
 		}
 	}

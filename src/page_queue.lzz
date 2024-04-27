@@ -104,12 +104,14 @@ namespace stt {
 		// std::vector like stuff goes here:
 		void clear() {
 			if constexpr(std::is_trivially_destructible<T>::value) {
+				// we don't need to invoke destructors so we can just throw away the linked list
 				if (head) {
 					head->ph.cachedWorkingEnd = (pageHeader*) tail;
 					freePagesList(head);
 					}
 				}
 			else {
+				// we need to itterate through the linked list and destroy every object
 				P* w = head;
 				while (w) {
 					P* t = w;
@@ -141,7 +143,8 @@ namespace stt {
 			std::swap(tail, other.tail);
 			}
 		
-		void concatenate(pageQueueImpl& other) {
+		void concatenate(STT_PAGEQUEUE_MVSEM other) {
+			// transfers the other queue to the end of this
 			if (!other.head)
 				return;
 			if (tail) {
@@ -151,9 +154,9 @@ namespace stt {
 			else {
 				head = other.head;
 				tail = other.tail;
-				other.head = NULL;
-				other.tail = NULL;
 				}
+			other.head = NULL;
+			other.tail = NULL;
 			}
 		
 		void extendTailIfRequired() {
@@ -175,7 +178,7 @@ namespace stt {
 			}
 		
 		inline void push_back(T__MVSEM t) {
-			printf("move semantics!\n");
+			stt_dbg_log("move semantics!\n");
 			extendTailIfRequired();
 			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(std::move(t));
 			tail->ph.localSize++;
@@ -209,7 +212,7 @@ namespace stt {
 			}
 		
 		~PageBumpAllocatedStorage() {
-			stt_assert(page->ph.totalSize == 0, ""); //remaning allocations
+			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
 			ThreadSafePageAllocator::freePage(page);
 			page = NULL;
 			}

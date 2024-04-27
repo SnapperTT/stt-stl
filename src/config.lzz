@@ -7,6 +7,7 @@
 #include <utility>	// std::move
 #include <initializer_list> // constructors, etc
 #include <iterator> // std::move_iterator
+#include <cstdarg> // varadic arguments
 
 // For detection of this lib
 #define STT_STL_LIB 1
@@ -26,8 +27,17 @@
 
 // Assert
 #ifndef STT_STL_ASSERT
-	#define STT_STL_ASSERT assert
+	#define STT_STL_ASSERT(X,M) assert(X && M)
 	#include <assert.h>
+#endif
+
+#ifndef STT_STL_ABORT
+	#define STT_STL_ABORT abort
+#endif
+
+// printf
+#ifndef STT_STL_PRINT
+	#define STT_STL_PRINT(X) printf("%s", X)
 #endif
 
 // Size types

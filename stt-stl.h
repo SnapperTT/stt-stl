@@ -15,6 +15,7 @@
 #include <utility>	// std::move
 #include <initializer_list> // constructors, etc
 #include <iterator> // std::move_iterator
+#include <cstdarg> // varadic arguments
 
 // For detection of this lib
 #define STT_STL_LIB 1
@@ -34,8 +35,17 @@
 
 // Assert
 #ifndef STT_STL_ASSERT
-	#define STT_STL_ASSERT assert
+	#define STT_STL_ASSERT(X,M) assert(X && M)
 	#include <assert.h>
+#endif
+
+#ifndef STT_STL_ABORT
+	#define STT_STL_ABORT abort
+#endif
+
+// printf
+#ifndef STT_STL_PRINT
+	#define STT_STL_PRINT(X) printf("%s", X)
 #endif
 
 // Size types
@@ -129,15 +139,15 @@ namespace stt
 }
 namespace stt
 {
-  void stt_assert (int expression, char const * expr);
-}
-namespace stt
-{
   void * stt_malloc (uint64_t const __size);
 }
 namespace stt
 {
   void stt_free (void * __ptr);
+}
+namespace stt
+{
+  void stt_dbg_log (char const * fmt, ...);
 }
 namespace stt
 {
@@ -248,13 +258,6 @@ namespace stt
   LZZ_INLINE storage_size_t stt_strlen (char const * __s)
                                                            {
 		return strlen(__s);
-		}
-}
-namespace stt
-{
-  LZZ_INLINE void stt_assert (int expression, char const * expr)
-                                                                  {
-		STT_STL_ASSERT(expression && expr);
 		}
 }
 namespace stt
@@ -392,6 +395,22 @@ namespace stt
 #define LZZ_INLINE inline
 namespace stt
 {
+  void stt_dbg_log (char const * fmt, ...)
+                                               {
+		// wraps printf so it can be overriden by another logging funciton
+		const uint32_t buffSz = 1024;
+		char buff[buffSz];
+		
+		va_list args;
+		va_start(args, fmt);
+		vsnprintf(buff, buffSz-1, fmt, args);
+		va_end(args);
+		
+		STT_STL_PRINT(buff);
+		}
+}
+namespace stt
+{
   uint64_t hash_low (uint64_t const seed, uint8_t const * ptr, alloc_size_t const size)
                                                                                             {
 		// Implementation based on tinyStl::hash
@@ -431,7 +450,7 @@ namespace stt
   {
     void array_out_of_bounds (storage_size_t const index, storage_size_t const size)
                                                                                                 {
-			STT_STL_ASSERT(0 && "index < size");
+			STT_STL_ASSERT(0, "index < size");
 			}
   }
 }
@@ -441,7 +460,7 @@ namespace stt
   {
     void bad_alloc (alloc_size_t const size, char const * message)
                                                                              {
-			STT_STL_ASSERT(0 && "index < size" && message);
+			STT_STL_ASSERT(0, "index < size (check message)");
 			}
   }
 }
@@ -785,7 +804,7 @@ namespace stt
                                                      {
 			// You can only set an allocator once as swapping
 			// allocators is undefined behaviour
-			stt_assert(mAllocator != NULL, "Allocator is already set!");
+			STT_STL_ASSERT(mAllocator != NULL, "Allocator is already set!");
 			mAllocator = alloc;
 			}
 }
@@ -1114,7 +1133,7 @@ namespace stt
                                                                     {
 			#if STT_STL_DEBUG
 			if constexpr(isAlwaysStore()) {
-				stt_assert(false, "set_local_size while isAlwaysStore true");
+				STT_STL_ASSERT(false, "set_local_size while isAlwaysStore true");
 				}
 			#endif
 			local_size_ref() = sz | sso_size_flag();																		
@@ -1206,8 +1225,8 @@ namespace stt
                                         {
 			// switching without checking capacity first is UB
 			#if STT_STL_DEBUG
-			stt_assert(d.store.mAllocator == 0, "allocator null check"); // do not deallocate if not null
-			stt_assert(!isAlwaysStore(), "always store check"); // do not deallocate if not null
+			STT_STL_ASSERT(d.store.mAllocator == 0, "allocator null check"); // do not deallocate if not null
+			STT_STL_ASSERT(!isAlwaysStore(), "always store check"); // do not deallocate if not null
 			#endif
 			storage store2 = d.store;
 			move_elements(&d.sso[0], store2.ptr, store2.size/element_size());
@@ -1736,7 +1755,7 @@ namespace stt
                                   {
 			// manually traverses to the end
 			pageHeader* w = this;
-			while (w->next) { w = w->next; }
+			while (w) { w = w->next; }
 			return w;
 			}
 }
@@ -1746,8 +1765,7 @@ namespace stt
                                                        {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
-			countOut++;
-			while (w->next) { countOut++; w = w->next; }
+			while (w) { countOut++; w = w->next; }
 			return w;
 			}
 }
@@ -2407,8 +2425,8 @@ namespace stt {
 	using string24 = string_base<24>; // warning: vector24 will alias if capacity > (2^24-1)
 	using string32 = string_base<32>;
 	using string64 = string_base<64>;
-	using string128 = string_base<128>;
-	using string252 = string_base<252>; // 252 + room for an int
+	using string128 = string_base<128>;	// 127 + room for an int
+	using string256 = string_base_traits<256, uint16_t>; // 252 + room for an int16
 	
 	
 	template <unsigned int N, typename SSO_SIZE_T>
