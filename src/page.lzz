@@ -101,14 +101,28 @@ namespace stt {
 		pageHeader* end() {
 			// manually traverses to the end
 			pageHeader* w = this;
-			while (w) { w = w->next; }
+			while (w->next) { w = w->next; }
 			return w;
 			}
 			
 		pageHeader* endCounting(int& countOut) {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
-			while (w) { countOut++; w = w->next; }
+			countOut++;
+			while (w->next) { w = w->next; countOut++; }
+			return w;
+			}
+			
+		pageHeader* endCountingDumping(int& countOut) {
+			pageHeader* w = this;
+			countOut++;
+			while (w->next) {
+				w = w->next;
+				#ifdef STT_STL_DEBUG
+				stt_dbg_log("\t\tendCountingDumping %p %i deep is %p\n", this, countOut, w);
+				#endif
+				countOut++; 
+				}
 			return w;
 			}
 			

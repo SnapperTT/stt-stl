@@ -40,6 +40,10 @@
 	#define STT_STL_PRINT(X) printf("%s", X)
 #endif
 
+#ifndef STT_STL_DEBUG_PAGE
+	#define STT_STL_DEBUG_PAGE 0
+#endif
+
 // Size types
 // define the macro to if you wish to override with your own types
 #ifndef STT_STL_SIZE_TYPES

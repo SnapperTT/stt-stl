@@ -48,6 +48,10 @@
 	#define STT_STL_PRINT(X) printf("%s", X)
 #endif
 
+#ifndef STT_STL_DEBUG_PAGE
+	#define STT_STL_DEBUG_PAGE 0
+#endif
+
 // Size types
 // define the macro to if you wish to override with your own types
 #ifndef STT_STL_SIZE_TYPES
@@ -1578,6 +1582,7 @@ namespace stt
     static pageHeader * buildList (pageHeader * * pages, uint32_t const nPages);
     pageHeader * end ();
     pageHeader * endCounting (int & countOut);
+    pageHeader * endCountingDumping (int & countOut);
     int listLength ();
     uint8_t * toPayload ();
     static pageHeader * fromPayload (uint8_t * ptr);
@@ -1755,7 +1760,7 @@ namespace stt
                                   {
 			// manually traverses to the end
 			pageHeader* w = this;
-			while (w) { w = w->next; }
+			while (w->next) { w = w->next; }
 			return w;
 			}
 }
@@ -1765,7 +1770,24 @@ namespace stt
                                                        {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
-			while (w) { countOut++; w = w->next; }
+			countOut++;
+			while (w->next) { w = w->next; countOut++; }
+			return w;
+			}
+}
+namespace stt
+{
+  pageHeader * pageHeader::endCountingDumping (int & countOut)
+                                                              {
+			pageHeader* w = this;
+			countOut++;
+			while (w->next) {
+				w = w->next;
+				#ifdef STT_STL_DEBUG
+				stt_dbg_log("\t\tendCountingDumping %p %i deep is %p\n", this, countOut, w);
+				#endif
+				countOut++; 
+				}
 			return w;
 			}
 }
