@@ -9,6 +9,7 @@
 #define LZZ_example_pages_hh
 #define STT_STL_DEBUG 1
 #define STT_STL_DEBUG_MEMORY 1
+#define STT_STL_DEBUG_PAGE 1
 #include "stt-stl.h"
 #define STT_STL_IMPL 1
 #define LZZ_INLINE inline
@@ -33,7 +34,6 @@ int main (int argc, char * * argv);
 
 #define STT_STL_IMPL 1
 #include "stt-stl.h"
-#define STT_DEBUG_PAGE 1
 #include "stt-pages.h"
 
 #include <iostream>

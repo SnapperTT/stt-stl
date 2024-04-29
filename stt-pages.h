@@ -31,7 +31,7 @@ namespace stt {
 	
 #include <mutex>
 #include <atomic>
-#ifdef STT_DEBUG_PAGE
+#if STT_STL_DEBUG_PAGE
 	#include <thread>
 #endif
 #define LZZ_INLINE inline
@@ -96,7 +96,9 @@ namespace stt
     static void allocGeneric (pageTypeEnum const pageType, pageHeader * * pages, uint32_t const nPages);
     template <typename T>
     static void allocGeneric (pageHeader * * pages, uint32_t const nPages);
+    template <typename T>
     static void freeGeneric (pageHeader * * pages, uint32_t const nPages);
+    template <typename T>
     static void freeGenericList (pageHeader * pagesLinkedList);
   };
 }
@@ -146,6 +148,7 @@ namespace stt
     STT_TLS_WRAPPER mTls;
     BackendPagePool PageGlobalFreeList;
     BackendPagePool JumboGlobalFreeList;
+    static std::atomic <int> dbg_totalPagesAllocated;
     ThreadSafePageAllocatorImpl ();
     ~ ThreadSafePageAllocatorImpl ();
     static uint8_t * raw_alloc (uint64_t const sz);
@@ -162,8 +165,7 @@ namespace stt
     void allocJumboPages (pageU * * pages, uint32_t const nPages);
     void freeJumboPages (pageU * * pages, uint32_t const nPages);
     static void systemAllocate (pageTypeEnum const mPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
-    template <typename PAGE_TYPE>
-    static void systemAllocate_impl (uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
+    static void systemAllocate_impl (uint32_t const sizeofPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
     static void systemFreeList (pageHeader * head);
   };
 }
@@ -201,7 +203,7 @@ namespace stt
 {
   LZZ_INLINE void BackendPagePool::atomicMerge (pageHeader * _insert, uint32_t const _nReturned)
                                                                                 {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 		stt_dbg_log("BackendPagePool atomicMerge: %p %i\n", _insert, _nReturned);
 		#endif
 		atomicMerge(_insert);
@@ -213,6 +215,9 @@ namespace stt
   void PassthroughPageAllocator::allocGeneric (pageHeader * * pages, uint32_t const nPages)
                                                                             {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
+			#if STT_STL_DEBUG_PAGE
+				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated += nPages;
+			#endif
 			for (uint32_t i = 0; i < nPages; ++i)
 				pages[i] = (pageHeader*) new T;
 		#endif
@@ -220,10 +225,48 @@ namespace stt
 }
 namespace stt
 {
+  template <typename T>
+  void PassthroughPageAllocator::freeGeneric (pageHeader * * pages, uint32_t const nPages)
+                                                                           {
+		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
+			#if STT_STL_DEBUG_PAGE
+				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated -= nPages;
+			#endif
+			for (uint32_t i = 0; i < nPages; ++i)
+				delete ((T*) pages[i]);
+		#endif
+		}
+}
+namespace stt
+{
+  template <typename T>
+  void PassthroughPageAllocator::freeGenericList (pageHeader * pagesLinkedList)
+                                                                 {
+		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
+			pageHeader* tmp = pagesLinkedList;
+			#if STT_STL_DEBUG_PAGE
+			int cnt = 0;
+			#endif
+			while (tmp) {
+				pageHeader* d = tmp;
+				tmp = tmp->next;
+				delete ((T*) d);
+				#if STT_STL_DEBUG_PAGE
+					cnt++;
+				#endif
+				}
+			#if STT_STL_DEBUG_PAGE
+				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated -= cnt;
+			#endif
+		#endif
+		}
+}
+namespace stt
+{
   LZZ_INLINE void ThreadLocalPagePool::dbgMarkPageAllocated (pageHeader * page)
                                                            {
-		#ifdef STT_DEBUG_PAGE
-			stt_dbg_log("ThreadLocalPagePool %s: Allocationg page %p\n", getThreadLabel(), page);
+		#if STT_STL_DEBUG_PAGE
+			stt_dbg_log("ThreadLocalPagePool %s: Allocating page %p\n", getThreadLabel(), page);
 		#endif
 		}
 }
@@ -231,7 +274,7 @@ namespace stt
 {
   LZZ_INLINE void ThreadLocalPagePool::dbgMarkPageFreed (pageHeader * page)
                                                        {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("ThreadLocalPagePool %s: Freeing page %p\n", getThreadLabel(), page);
 		#endif
 		}
@@ -240,7 +283,7 @@ namespace stt
 {
   LZZ_INLINE void ThreadLocalPagePool::dbgMarkPageFreedList (pageHeader * pagesLinkedList)
                                                                       {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			pageHeader* tmp = pagesLinkedList;
 			while (tmp) {
 				dbgMarkPageFreed(tmp);
@@ -254,41 +297,6 @@ namespace stt
   LZZ_INLINE void ThreadSafePageAllocatorImpl::perf_warning (char const * msg)
                                                    {
 		stt_dbg_log("stt::ThreadSafePageAllocator WARNING: %s\n", msg);
-		}
-}
-namespace stt
-{
-  template <typename PAGE_TYPE>
-  void ThreadSafePageAllocatorImpl::systemAllocate_impl (uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB)
-                                                                                                                                     {
-		// Group A & B are pointers to pointers, NOT arrays of pointers
-		// allocates at least nPagesTotal, and returns (nSplit) into linked list groupA and the rest into linked list groupB
-		
-		#ifdef STT_DEBUG_PAGE
-			stt_dbg_log("Allocating %i (%i) pages\n", nPagesTotal, nSplit);
-		#endif
-		
-		pageHeader* ph[nPagesTotal];
-		ph[0] = (pageHeader*) raw_alloc(sizeof(PAGE_TYPE));
-		for (uint i = 1; i < nPagesTotal; ++i) {
-			ph[i] = (pageHeader*) raw_alloc(sizeof(PAGE_TYPE));
-			ph[i-1]->next = ph[i];
-			}
-		
-		// are we splitting?
-		if (nSplit > 0) {
-			ph[nSplit-1]->next = NULL;
-			*groupA = ph[0];
-			*groupB = ph[nSplit];
-			
-			ph[0]->cachedWorkingEnd = ph[nSplit-1];
-			ph[nSplit]->cachedWorkingEnd = ph[nPagesTotal-1];
-			}
-		else {
-			*groupA = NULL;
-			*groupB = ph[0];
-			ph[0]->cachedWorkingEnd = ph[nPagesTotal-1];
-			}
 		}
 }
 #undef LZZ_INLINE
@@ -345,7 +353,7 @@ namespace stt
 {
   BackendPagePool::~ BackendPagePool ()
                            {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 		stt_dbg_log("~BackendPagePool %s\n", pageTypeEnumToString(mPageType));
 		dbg_print_status();
 		#endif
@@ -370,7 +378,7 @@ namespace stt
 		// Takes all pages held here and deallocates them
 		mMutex.lock();
 		pageHeader* h = atomicTake();
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 		stt_dbg_log("BackendPagePool freeAll IN: h: %p, allocFreeList: %p\n", h, allocFreeList);
 		#endif
 		if (h) {
@@ -379,7 +387,7 @@ namespace stt
 			else
 				allocFreeList = h;
 			}
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 		stt_dbg_log("BackendPagePool freeAll: allocFreeList %p\n", allocFreeList);
 		#endif
 		ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
@@ -467,8 +475,8 @@ namespace stt
 			store[nPages-1]->next = NULL;
 			
 			
-			#if STT_DEBUG_PAGE
-				stt_dbg_log ("bulkFetch out path a, %i pages allocated\n", i);
+			#if STT_STL_DEBUG_PAGE
+				stt_dbg_log ("BackendPagePool: bulkFetch out path a, %i pages allocated\n", i);
 			#endif
 			return;
 			}
@@ -476,21 +484,30 @@ namespace stt
 		// we have a parital linked list, we need system allocation
 		pageHeader* remaining = NULL;
 		pageHeader* leftovers = NULL;
-		ThreadSafePageAllocatorImpl::systemAllocate(mPageType, batchSize + nPages - nAllocated, nPages - nAllocated, &remaining, &leftovers);
+		const uint32_t nPagesToSystemAllocate = (batchSize + nPages - nAllocated);
+		const uint32_t nSplit =  nPages - nAllocated;
+		ThreadSafePageAllocatorImpl::systemAllocate(mPageType, nPagesToSystemAllocate, nSplit, &remaining, &leftovers);
 		
+		if (i)
+			store[i-1]->next = remaining;
 		for (; i < nPages; ++i) {
+			#if STT_STL_DEBUG_PAGE
+				STT_STL_ASSERT(remaining, "remaining is not valid");
+			#endif
 			store[i] = remaining;
 			remaining = remaining->next;
 			}
+		store[nPages-1]->next = NULL;
 		
 		// the entire free list has been consumed so we can dispose of it here
 		allocFreeList = leftovers;
 		
-		#if STT_DEBUG_PAGE
-		stt_dbg_log ("bulkFetch %s, %i, %i\n", pageTypeEnumToString(mPageType), batchSize + nPages - nAllocated, nPages - nAllocated);
+		#if STT_STL_DEBUG_PAGE
+		stt_dbg_log ("BackendPagePool: bulkFetch out path b %s, total: %i, groupA: %i, groupB: %i\n", pageTypeEnumToString(mPageType), nPagesToSystemAllocate, nSplit, nPagesToSystemAllocate - nSplit);
 		int cnt = 0;
-		pageHeader* tail = allocFreeList;
-		stt_dbg_log ("allocFreeList %p %p %p %p %i\n", allocFreeList, allocFreeList->next, allocFreeList->cachedWorkingEnd, tail, cnt);
+		pageHeader* tail = allocFreeList->endCountingDumping(cnt);
+		stt_dbg_log ("BackendPagePool: allocFreeList: %p, next: %p, end: %p, true end: %p, length: %i\n", allocFreeList, allocFreeList->next, allocFreeList->cachedWorkingEnd, tail, cnt);
+		STT_STL_ASSERT(allocFreeList->cachedWorkingEnd == tail, "BackendPagePool freelist is corrupt");
 		#endif
 		
 		mMutex.unlock();
@@ -507,30 +524,6 @@ namespace stt
 			return allocGeneric<jumboPageU>(pages, nPages);
 		else
 			STT_STL_ABORT();
-		#endif
-		}
-}
-namespace stt
-{
-  void PassthroughPageAllocator::freeGeneric (pageHeader * * pages, uint32_t const nPages)
-                                                                           {
-		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
-			for (uint32_t i = 0; i < nPages; ++i)
-				delete pages[i];
-		#endif
-		}
-}
-namespace stt
-{
-  void PassthroughPageAllocator::freeGenericList (pageHeader * pagesLinkedList)
-                                                                 {
-		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
-			pageHeader* tmp = pagesLinkedList;
-			while (tmp) {
-				pageHeader* d = tmp;
-				tmp = tmp->next;
-				delete d;
-				}
 		#endif
 		}
 }
@@ -557,7 +550,7 @@ namespace stt
 		threadId = _threadId;
 		stt_memset((uint8_t*) &snstt_dbg_logBuffer[0], 0, 64);
 		
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("INIT NEW ThreadLocalPagePool %s\n", getThreadLabel());
 		#endif
 		}
@@ -566,8 +559,8 @@ namespace stt
 {
   ThreadLocalPagePool::~ ThreadLocalPagePool ()
                                {
-		#ifdef STT_DEBUG_PAGE
-			stt_dbg_log("~ThreadLocalPagePool %s\n", getThreadLabel());
+		#if STT_STL_DEBUG_PAGE
+			stt_dbg_log("~ThreadLocalPagePool %s, nPagesInFreeList: %i\n", getThreadLabel(), nPagesInFreeList);
 			dbg_print_status();
 		#endif
 		returnPagesToGlobalPool(freelist, nPagesInFreeList);
@@ -578,10 +571,10 @@ namespace stt
 {
   char const * ThreadLocalPagePool::getThreadLabel ()
                                       {
-		#ifdef STT_DEBUG_PAGE_THREAD_LABEL
-			return STT_DEBUG_PAGE_THREAD_LABEL(this);
+		#if STT_STL_DEBUG_PAGE_THREAD_LABEL
+			return STT_STL_DEBUG_PAGE_THREAD_LABEL(this);
 		#else
-			#ifdef STT_DEBUG_PAGE
+			#if STT_STL_DEBUG_PAGE
 				snprintf(snstt_dbg_logBuffer, 64, "[T%i %x %p]", threadId, (unsigned int) std::hash<std::thread::id>()(std::this_thread::get_id()), this);
 				return snstt_dbg_logBuffer;
 			#endif
@@ -593,7 +586,7 @@ namespace stt
 {
   void ThreadLocalPagePool::dbg_print_status ()
                                 {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			int fll = freelist ? freelist->listLength() : 0;
 			stt_dbg_log("\tThreadLocalPagePool (%s, %s): %p -> %p, %i/%i\n", pageTypeEnumToString(mPageType), getThreadLabel(), freelist, freelist ? freelist->cachedWorkingEnd : NULL, fll, nPagesInFreeList);
 			if (fll != nPagesInFreeList)
@@ -606,7 +599,7 @@ namespace stt
 {
   void ThreadLocalPagePool::dbg_dump_freelist ()
                                  {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			int i = 0;
 			pageHeader* tmp = freelist;
 			while (tmp) {
@@ -626,8 +619,10 @@ namespace stt
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
 			return PassthroughPageAllocator::allocGeneric(mPageType, pages, nPages);
 		#endif
-		#ifdef STT_DEBUG_PAGE
-				stt_dbg_log("ThreadLocalPagePool %s allocPages: nPages: %i, freelist length: %i, nPagesInFreeList %i -> %i \n", getThreadLabel(), nPages, freelist ? freelist->listLength() : 0, nPagesInFreeList, nPagesInFreeList - nPages);
+		#if STT_STL_DEBUG_PAGE
+			const int listLength = freelist ? freelist->listLength() : 0;
+			stt_dbg_log("ThreadLocalPagePool %s allocPages: nPages: %i, freelist length: %i, nPagesInFreeList %i -> %i \n", getThreadLabel(), nPages, listLength, nPagesInFreeList, nPagesInFreeList - nPages);
+			STT_STL_ASSERT (listLength == nPagesInFreeList, "freelist is corrupt (3)");
 		#endif
 			
 		uint32_t count = 0;
@@ -652,7 +647,7 @@ namespace stt
 			const uint32_t want = requestAmount + nPages - count;	// Batch size + (num needed for this request)
 			pageHeader* localStore[want];
 			
-			#ifdef STT_DEBUG_PAGE
+			#if STT_STL_DEBUG_PAGE
 				stt_dbg_log("ThreadLocalPagePool %s fetching from backend want: %i, nPages: %i, count: %i, (nPages - countInit): %i, requestAmount: %i\n", getThreadLabel(), want, nPages, count, (nPages-countInit), requestAmount);
 			#endif
 			
@@ -663,12 +658,23 @@ namespace stt
 			else
 				STT_STL_ABORT();
 			
-			#ifdef STT_DEBUG_PAGE
+			#if STT_STL_DEBUG_PAGE
+			{
 			stt_dbg_log("ThreadLocalPagePool %s S0 localStore:\n", getThreadLabel());
+			
+			bool isBroken = false;
 			for (uint32_t i = 0; i < want; ++i) {
-				stt_dbg_log("\t%i: %p", i, localStore[i]);
+				//if (i < want -1) localStore[i]->next = localStore[i+1];
+				stt_dbg_log("\t%i: %p (-> %p), end: %p", i, localStore[i], localStore[i] ? localStore[i]->next : NULL, localStore[i] ? localStore[i]->cachedWorkingEnd : NULL);
+				if (localStore[i]->next && i < want && localStore[i]->next != localStore[i+1]) {
+					stt_dbg_log("!!! linked list is corrupt (localStore[%i] does not point to localStore[%i])", i, i+1);
+					isBroken = true;
+					}
 				}
-				stt_dbg_log("\n");
+			if (isBroken)
+				STT_STL_ABORT();
+			stt_dbg_log("\n");
+			}
 			#endif
 			
 			uint32_t idx = 0;
@@ -678,7 +684,7 @@ namespace stt
 				++idx;
 				}
 					
-			#ifdef STT_DEBUG_PAGE
+			#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("ThreadLocalPagePool %s S1 allocPages:\n", getThreadLabel());
 				STT_STL_ASSERT(freelist == NULL, "freelist is null");
 			#endif
@@ -686,7 +692,7 @@ namespace stt
 			freelist->cachedWorkingEnd = localStore[want-1];
 			nPagesInFreeList = requestAmount;
 			
-			#ifdef STT_DEBUG_PAGE
+			#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("ThreadLocalPagePool %s S2 allocPages:\n", getThreadLabel());
 				dbg_print_status();
 			#endif
@@ -700,7 +706,7 @@ namespace stt
 		// assembles pages into a linked list, then adds to the freelist
 		if (!nPages) return;
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
-			return PassthroughPageAllocator::freeGeneric(pages, nPages);
+			return PassthroughPageAllocator::freeGeneric<pageU>(pages, nPages);
 		#endif
 		freePagesList(pageHeader::buildList(pages, nPages), nPages);
 		}
@@ -712,9 +718,12 @@ namespace stt
 		// frees an already prepared linked list of pages
 		// if the number of pages is not known then knownCount 
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
-			return PassthroughPageAllocator::freeGenericList(pagesLinkedList);
+			return PassthroughPageAllocator::freeGenericList<pageU>(pagesLinkedList);
 		#endif
-		dbg_dump_freelist();
+		#if STT_STL_DEBUG_PAGE
+			stt_dbg_log("ThreadLocalPagePool %s freePagesList IN:\n", getThreadLabel());
+			dbg_dump_freelist();
+		#endif
 		
 		uint32_t realKnownCount = knownCount;
 		if (!realKnownCount) {
@@ -738,7 +747,10 @@ namespace stt
 			returnPagesToGlobalPool(returnList, nReturned);			
 			}
 			
-		dbg_dump_freelist();
+		#if STT_STL_DEBUG_PAGE
+			stt_dbg_log("ThreadLocalPagePool %s freePagesList OUT:\n", getThreadLabel());
+			dbg_dump_freelist();
+		#endif
 		}
 }
 namespace stt
@@ -760,7 +772,7 @@ namespace stt
 {
   PATL_Data::PATL_Data ()
                     {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("CONSTRUCT NEW PATL_Data %p\n", this);
 		#endif
 		int threadId = ThreadLocalPagePool::staticNextId++;
@@ -772,10 +784,14 @@ namespace stt
 {
   PATL_Data::~ PATL_Data ()
                      {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("~PATL_Data %p\n", this);
 		#endif
 		}
+}
+namespace stt
+{
+  std::atomic <int> ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated = 0;
 }
 namespace stt
 {
@@ -921,18 +937,60 @@ namespace stt
                                                                                                                                                               {
 		// Group A & B are pointers to pointers, NOT arrays of pointers
 		if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
-			systemAllocate_impl<pageU>(nPagesTotal, nSplit, groupA, groupB);
+			systemAllocate_impl(sizeof(pageU), nPagesTotal, nSplit, groupA, groupB);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
-			systemAllocate_impl<jumboPageU>(nPagesTotal, nSplit, groupA, groupB);
+			systemAllocate_impl(sizeof(jumboPageU), nPagesTotal, nSplit, groupA, groupB);
 		else
 			STT_STL_ABORT();
 		}
 }
 namespace stt
 {
+  void ThreadSafePageAllocatorImpl::systemAllocate_impl (uint32_t const sizeofPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB)
+                                                                                                                                                                    {
+		// Group A & B are pointers to pointers, NOT arrays of pointers
+		// allocates at least nPagesTotal, and returns (nSplit) into linked list groupA and the rest into linked list groupB
+				
+		pageHeader* ph[nPagesTotal];
+		ph[0] = (pageHeader*) raw_alloc(sizeofPageType);
+		for (uint i = 1; i < nPagesTotal; ++i) {
+			ph[i] = (pageHeader*) raw_alloc(sizeofPageType);
+			ph[i-1]->next = ph[i];
+			}
+		ph[nPagesTotal-1]->next = NULL;
+		
+		// are we splitting?
+		if (nSplit > 0) {
+			ph[nSplit-1]->next = NULL;
+			*groupA = ph[0];
+			*groupB = ph[nSplit];
+			
+			ph[0]->cachedWorkingEnd = ph[nSplit-1];
+			ph[nSplit]->cachedWorkingEnd = ph[nPagesTotal-1];
+			
+			#if STT_STL_DEBUG_PAGE
+			//stt_dbg_log("SystemAllocate: groupB:\n");
+			//int c = 0;
+			//(*groupB)->endCountingDumping(c);
+			#endif
+			}
+		else {
+			*groupA = NULL;
+			*groupB = ph[0];
+			ph[0]->cachedWorkingEnd = ph[nPagesTotal-1];
+			}
+			
+		#if STT_STL_DEBUG_PAGE
+			dbg_totalPagesAllocated += nPagesTotal;
+			stt_dbg_log("SystemAllocate: Allocated %i (%i) pages, dbg_totalPagesAllocated: %i\n", nPagesTotal, nSplit, int(dbg_totalPagesAllocated));
+		#endif
+		}
+}
+namespace stt
+{
   void ThreadSafePageAllocatorImpl::systemFreeList (pageHeader * head)
                                                      {
-		#ifdef STT_DEBUG_PAGE
+		#if STT_STL_DEBUG_PAGE
 			uint32_t nPagesTotal = 0;
 		#endif
 		pageHeader* w = head;
@@ -940,13 +998,14 @@ namespace stt
 			pageHeader* n = w->next;
 			raw_free((uint8_t*) w, 0);
 			w = n;
-			#ifdef STT_DEBUG_PAGE
+			#if STT_STL_DEBUG_PAGE
 				nPagesTotal++;
 			#endif
 			}
 			
-		#ifdef STT_DEBUG_PAGE
-			stt_dbg_log("Freeing %i pages\n", nPagesTotal);
+		#if STT_STL_DEBUG_PAGE
+			dbg_totalPagesAllocated -= nPagesTotal;
+			stt_dbg_log("SystemAllocate: Freeing %i pages, total allocated: %i\n", nPagesTotal, int(dbg_totalPagesAllocated));
 		#endif
 		}
 }
@@ -977,6 +1036,7 @@ namespace stt
     static void allocPages (pageU * * pages, uint32_t const nPages);
     static void freePages (pageU * * pages, uint32_t const nPages);
     static void freePagesList (pageU * pageLinkedList);
+    static int dbg_getNPagesAllocated ();
   };
 }
 namespace stt
@@ -1219,6 +1279,11 @@ namespace stt
 {
   void ThreadSafePageAllocator::freePagesList (pageU * pageLinkedList)
                                                          { ThreadSafePageAllocatorImpl::get().freePagesList(pageLinkedList); }
+}
+namespace stt
+{
+  int ThreadSafePageAllocator::dbg_getNPagesAllocated ()
+                                            { return ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated; }
 }
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
@@ -1720,6 +1785,7 @@ namespace stt
     static pageHeader * buildList (pageHeader * * pages, uint32_t const nPages);
     pageHeader * end ();
     pageHeader * endCounting (int & countOut);
+    pageHeader * endCountingDumping (int & countOut);
     int listLength ();
     uint8_t * toPayload ();
     static pageHeader * fromPayload (uint8_t * ptr);
@@ -1897,7 +1963,7 @@ namespace stt
                                   {
 			// manually traverses to the end
 			pageHeader* w = this;
-			while (w) { w = w->next; }
+			while (w->next) { w = w->next; }
 			return w;
 			}
 }
@@ -1907,7 +1973,24 @@ namespace stt
                                                        {
 			// manually traverses to the end, counts number of pages
 			pageHeader* w = this;
-			while (w) { countOut++; w = w->next; }
+			countOut++;
+			while (w->next) { w = w->next; countOut++; }
+			return w;
+			}
+}
+namespace stt
+{
+  pageHeader * pageHeader::endCountingDumping (int & countOut)
+                                                              {
+			pageHeader* w = this;
+			countOut++;
+			while (w->next) {
+				w = w->next;
+				#ifdef STT_STL_DEBUG
+				stt_dbg_log("\t\tendCountingDumping %p %i deep is %p\n", this, countOut, w);
+				#endif
+				countOut++; 
+				}
 			return w;
 			}
 }

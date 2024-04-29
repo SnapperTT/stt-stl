@@ -36,6 +36,8 @@ public:
 	static void freePages(pageU** pages, const uint32_t nPages)  { ThreadSafePageAllocatorImpl::get().freePages(pages, nPages); }
 	// Because a array of pages is internally converted into a linked list it is more efficent a linked list directly
 	static void freePagesList(pageU* pageLinkedList) { ThreadSafePageAllocatorImpl::get().freePagesList(pageLinkedList); }
+	
+	static int dbg_getNPagesAllocated() { return ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated; }
 	};
 	
 namespace ThreadSafePageAllocatorTemplates {
