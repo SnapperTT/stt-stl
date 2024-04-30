@@ -22,6 +22,7 @@ namespace stt {
 namespace stt {
 	template<typename T, typename P>
 	struct pageQueueImpl {
+		// Purpose: a thin std::vector replacement with discontigious storage of fixed-size blocks
 		P* head;
 		P* tail;
 		
@@ -100,6 +101,7 @@ namespace stt {
 		static const STT_CONSTEXPR__T* pagePtr(const P* const p) { return (const T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
 		
 		inline uint32_t size() const { return head ? head->ph.totalSize : 0; }
+		uint32_t numPages () const { return head ? head->ph.listLength() : 0; }
 		
 		// std::vector like stuff goes here:
 		void clear() {

@@ -2,6 +2,9 @@
 #end
 
 #src
+namespace stt {
+	int dbg_getNPagesAllocated_forward() { return ThreadSafePageAllocator::dbg_getNPagesAllocated(); }
+	}
 #end
 
 namespace stt {

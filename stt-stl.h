@@ -48,8 +48,20 @@
 	#define STT_STL_PRINT(X) printf("%s", X)
 #endif
 
+// debug page
 #ifndef STT_STL_DEBUG_PAGE
 	#define STT_STL_DEBUG_PAGE 0
+#endif
+
+// track  page allocations - if STT_STL_DEBUG_PAGE is on then
+// force enable STT_STL_TRACK_SYSTEM_ALLOCATIONS
+#ifndef STT_STL_TRACK_SYSTEM_ALLOCATIONS
+	#define STT_STL_TRACK_SYSTEM_ALLOCATIONS STT_STL_DEBUG_PAGE
+#else
+	#if STT_STL_DEBUG_PAGE
+		#undef STT_STL_TRACK_SYSTEM_ALLOCATIONS
+		#define STT_STL_TRACK_SYSTEM_ALLOCATIONS STT_STL_DEBUG_PAGE
+	#endif
 #endif
 
 // Size types
