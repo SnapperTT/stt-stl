@@ -595,8 +595,8 @@ namespace stt
 		freelist = NULL;
 		nPagesInFreeList = 0;
 		
-		requestAmount = 100;
-		maxFreeListAmount = 200;
+		requestAmount = 10;
+		maxFreeListAmount = 20;
 		
 		threadId = _threadId;
 		stt_memset((uint8_t*) &snstt_dbg_logBuffer[0], 0, 64);
