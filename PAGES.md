@@ -29,23 +29,51 @@ I supply two kinds of pages with this library - regular (about 4k in size) and j
 
 You can change the size of the pages by defining the `STT_PAGE_SIZE` and `STT_JUMBO_PAGE_SIZE` macros.
 
+
 ## Allocating 
 The main interface for allocating and freeing pages is the `ThreadSafePageAllocator`. Internally this uses a thread_local pool of pages per thread and a global pool that is shared. When a thread_local pool gets exhausted then it'll move pages from the global pool to the thread_local pool, and if the thread_local pool has a surplus of pages then they will be returned to the global pool.
 
 You can allocate (fetch from the pool) a page by calling `ThreadSafePageAllocator::allocPage` and `ThreadSafePageAllocator::freePage`. You can also use `allocPages/freePages` to batch allocate. 
 
 *VERY IMPORTANT* - when you get a page from the allocator it is unitialzed data - this includes it's own header! Be sure to call `mPage->initHeader()` with your freshly allocated page!
-A `page` is a union of `uint8_t[SIZE]` and a `pageHeader` class. When you
+A `page` is a union of `uint8_t[SIZE]` and a `pageHeader` class. When you allocate the a page the header is full of uninitialised garbage, this is so that you can initialise when you actually use it to prevent unnessecary access from system memory. Also when you free the page object you must make sure that the `pageHeader::next` pointer is not garbage (`initHeader` will set this to zero)
 
+
+## Per Thread Tuning
+Thread_local pools can have custom sized pools. By default they request 10 pages at a time and a hold a max of 20 pages. If this max is reached everything above the lower limit is returned to the global pool, if an allocation is requested then and the less than request. You can set custom values for this, This is useful if you have threads that are mainly producers (use high requestSize) and threads that are mainly consumers (use a low maxCacheSize).
+
+Requesting from the global backend is a mutex locked operation so try to avoid it where possible. If you do a bulk allocation that then it will request the minimum request PLUS your bulk, so if the request size is 10 and you request 31 pages then an empty thread local pool will request 10+31 pages from the backend. Using `stt::ThreadSafePageAllocator::bulkAllocate` should be done if you know how many pages you need in advance.
+
+You can access the thread_local pool objects with:
+```
+PATL_Data* PA = stt::ThreadSafePageAllocator::getThreadLocalAllocators()
+//or
+ThreadLocalPagePool* pageAlloc = ThreadSafePageAllocator::getThreadLocalPool(pageTypeEnum::PAGE_TYPE_NORMAL);
+```
+And the global backend pool with:
+```
+BackendPagePool* BP = ThreadSafePageAllocator::getBackendPool(pageTypeEnum::PAGE_TYPE_NORMAL);
+```
+
+And you can tune them with, eg:
+```
+PA->pageAlloc.setMinMaxFreelistPages(requestAmount, maxCacheSize); // setting values
+PA->pageAlloc.getMinMaxFreelistPages(requestAmount, maxCacheSize); // reading values
+PA->pageAlloc.returnAllPages(); // flush everything now
+```
+
+You can also flush all pages to the global pool with. Flushing pages is a series of lock-free atomic operation.
+
+Finally you can change the (minimum) batch size for the `BackendPagePool` by the `BackendPagePool::batchSize` variable. The backend is never flushed back to system memory by default, allocated pages live forever (by design we are trying to avoid system `malloc`/`free` by recycling pages). But they can be forced flushed back to system memory by calling `BackendPagePool::freeAllToSystem()` 
 
 
 ## Containers
 * pageQueue<T> - Like a `std::vector` but discontigious and does not allow random access. You can `push_back` and use ranged itteration to access. 
 * pageBump - A basic bump allocator, designed to be a bucket for objects with the same or similar lifetime
 
-##
+## Debugging
+You can define `STT_PASSTHROUGH_TL_PAGE_ALLOCATOR` or `STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_BACKEND` to bypass the thread_local or backend page pools and just call `new`/`delete` directly
 
-STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
 
 ## Requirements:
 C++17

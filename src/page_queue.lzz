@@ -204,6 +204,7 @@ namespace stt {
 
 	class PageBumpAllocatedStorage {
 	public:
+	#warning move to new file
 		// todo: move to seperate file
 		// used for collections of small objects with similar lifetimes. Stores them in a page
 		pageU* page; // custom fields being used - totalSize = totalAllocations

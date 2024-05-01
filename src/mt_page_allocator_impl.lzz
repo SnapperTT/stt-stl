@@ -106,7 +106,7 @@ public:
 	
 	BackendPagePool() {
 		mPageType = pageTypeEnum::PAGE_TYPE_UNSET;
-		batchSize = 100;
+		batchSize = 1; // really set in ThreadSafeAllocatorImpl()
 		
 		allocFreeList = NULL;
 		_list = NULL;
@@ -117,7 +117,13 @@ public:
 		stt_dbg_log("~BackendPagePool %s\n", pageTypeEnumToString(mPageType));
 		dbg_print_status();
 		#endif
-		freeAll();
+		freeAllToSystem();
+		}
+		
+	
+	void init (const pageTypeEnum _pageType, const uint32_t _batchSize) {
+		mPageType = _pageType;
+		batchSize = _batchSize;
 		}
 		
 	void dbg_print_status() {
@@ -128,7 +134,7 @@ public:
 		mMutex.unlock();
 		}
 	
-	void freeAll() {
+	void freeAllToSystem() {
 		// Takes all pages held here and deallocates them
 		mMutex.lock();
 		pageHeader* h = atomicTake();
@@ -324,7 +330,7 @@ public:
 	template <typename T>
 	static void allocGeneric(pageHeader** pages, const uint32_t nPages) {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_IMPL
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated += nPages;
 			#endif
 			for (uint32_t i = 0; i < nPages; ++i)
@@ -335,7 +341,7 @@ public:
 	template <typename T>
 	static void freeGeneric(pageHeader** pages, const uint32_t nPages) {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_IMPL
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated -= nPages;
 			#endif
 			for (uint32_t i = 0; i < nPages; ++i)
@@ -347,18 +353,18 @@ public:
 	static void freeGenericList(pageHeader* pagesLinkedList) {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_IMPL
 			pageHeader* tmp = pagesLinkedList;
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 			int cnt = 0;
 			#endif
 			while (tmp) {
 				pageHeader* d = tmp;
 				tmp = tmp->next;
 				delete ((T*) d);
-				#if STT_STL_DEBUG_PAGE
+				#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 					cnt++;
 				#endif
 				}
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated -= cnt;
 			#endif
 		#endif
@@ -381,6 +387,8 @@ public:
 	char snstt_dbg_logBuffer[64];
 	
 	static std::atomic<int> staticNextId = 0;
+	const static int DEFAULT_THREADLOCAL_MIN_FREELIST_PAGES = 10;
+	const static int DEFAULT_THREADLOCAL_MAX_FREELIST_PAGES = 20;
 	
 	ThreadLocalPagePool() {}
 		
@@ -389,8 +397,7 @@ public:
 		freelist = NULL;
 		nPagesInFreeList = 0;
 		
-		requestAmount = 10;
-		maxFreeListAmount = 20;
+		setMinMaxFreelistPages(DEFAULT_THREADLOCAL_MIN_FREELIST_PAGES, DEFAULT_THREADLOCAL_MAX_FREELIST_PAGES);
 		
 		threadId = _threadId;
 		stt_memset((uint8_t*) &snstt_dbg_logBuffer[0], 0, 64);
@@ -399,12 +406,27 @@ public:
 			stt_dbg_log("INIT NEW ThreadLocalPagePool %s\n", getThreadLabel());
 		#endif
 		}
-		
+	
 	~ThreadLocalPagePool() {
 		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("~ThreadLocalPagePool %s, nPagesInFreeList: %i\n", getThreadLabel(), nPagesInFreeList);
 			dbg_print_status();
 		#endif
+		returnAllPages();
+		}
+		
+	void setMinMaxFreelistPages(const uint32_t requestSize, const uint32_t maxCachedSize) {
+		requestAmount = requestSize;
+		maxFreeListAmount = maxCachedSize;
+		STT_STL_ASSERT(maxFreeListAmount >= requestAmount*2, "freelist size must be at least twice as big as the request size");
+		}
+		
+	void getMinMaxFreelistPages(uint32_t & requestSizeOut, uint32_t & maxCachedOut) {
+		requestSizeOut = requestAmount;
+		maxCachedOut = maxFreeListAmount;
+		}
+		
+	void returnAllPages() {
 		returnPagesToGlobalPool(freelist, nPagesInFreeList);
 		freelist = NULL;
 		}
@@ -621,7 +643,7 @@ struct PATL_Data {
 		#endif
 		int threadId = ThreadLocalPagePool::staticNextId++;
 		pageAlloc.init(pageTypeEnum::PAGE_TYPE_NORMAL, threadId);
-		jumboPageAlloc.init(pageTypeEnum::PAGE_TYPE_NORMAL, threadId);
+		jumboPageAlloc.init(pageTypeEnum::PAGE_TYPE_JUMBO, threadId);
 		}
 	
 	~PATL_Data() {
@@ -642,8 +664,9 @@ public:
 	static std::atomic<int> dbg_totalPagesAllocated = 0; // only used if STT_STL_TRACK_SYSTEM_ALLOCATIONS is true
 	
 	ThreadSafePageAllocatorImpl() {
-		PageGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
-		JumboGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		PageGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_NORMAL, 100);
+		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 10);
+		
 		
 		initThreadLocalAllocators(); // init for this thread
 		}
@@ -674,8 +697,8 @@ public:
 		mTls.setTlsData(NULL);
 		}
 	void cleanupGlobalFreeLists() {
-		PageGlobalFreeList.freeAll();
-		JumboGlobalFreeList.freeAll();
+		PageGlobalFreeList.freeAllToSystem();
+		JumboGlobalFreeList.freeAllToSystem();
 		}
 	PATL_Data* getThreadLocalAllocators() {
 		return mTls.getTlsData();
