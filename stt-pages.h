@@ -86,8 +86,9 @@ namespace stt
     std::atomic <pageHeader*> _list;
     BackendPagePool ();
     ~ BackendPagePool ();
+    void init (pageTypeEnum const _pageType, uint32_t const _batchSize);
     void dbg_print_status ();
-    void freeAll ();
+    void freeAllToSystem ();
     void freePages (pageHeader * * pages, uint32_t const nPages);
     void atomicMerge (pageHeader * _insert, uint32_t const _nReturned);
     void atomicMerge (pageHeader * _insert);
@@ -122,9 +123,14 @@ namespace stt
     int threadId;
     char (snstt_dbg_logBuffer) [64];
     static std::atomic <int> staticNextId;
+    static int const DEFAULT_THREADLOCAL_MIN_FREELIST_PAGES = 10;
+    static int const DEFAULT_THREADLOCAL_MAX_FREELIST_PAGES = 20;
     ThreadLocalPagePool ();
     void init (pageTypeEnum const _pageType, uint32_t const _threadId);
     ~ ThreadLocalPagePool ();
+    void setMinMaxFreelistPages (uint32_t const requestSize, uint32_t const maxCachedSize);
+    void getMinMaxFreelistPages (uint32_t & requestSizeOut, uint32_t & maxCachedOut);
+    void returnAllPages ();
     char const * getThreadLabel ();
     void dbg_print_status ();
     void dbg_dump_freelist ();
@@ -222,7 +228,7 @@ namespace stt
   void PassthroughPageAllocator::allocGeneric (pageHeader * * pages, uint32_t const nPages)
                                                                             {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_IMPL
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated += nPages;
 			#endif
 			for (uint32_t i = 0; i < nPages; ++i)
@@ -236,7 +242,7 @@ namespace stt
   void PassthroughPageAllocator::freeGeneric (pageHeader * * pages, uint32_t const nPages)
                                                                            {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_IMPL
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated -= nPages;
 			#endif
 			for (uint32_t i = 0; i < nPages; ++i)
@@ -251,18 +257,18 @@ namespace stt
                                                                  {
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_IMPL
 			pageHeader* tmp = pagesLinkedList;
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 			int cnt = 0;
 			#endif
 			while (tmp) {
 				pageHeader* d = tmp;
 				tmp = tmp->next;
 				delete ((T*) d);
-				#if STT_STL_DEBUG_PAGE
+				#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 					cnt++;
 				#endif
 				}
-			#if STT_STL_DEBUG_PAGE
+			#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
 				ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated -= cnt;
 			#endif
 		#endif
@@ -350,7 +356,7 @@ namespace stt
   BackendPagePool::BackendPagePool ()
                           {
 		mPageType = pageTypeEnum::PAGE_TYPE_UNSET;
-		batchSize = 100;
+		batchSize = 1; // really set in ThreadSafeAllocatorImpl()
 		
 		allocFreeList = NULL;
 		_list = NULL;
@@ -364,7 +370,15 @@ namespace stt
 		stt_dbg_log("~BackendPagePool %s\n", pageTypeEnumToString(mPageType));
 		dbg_print_status();
 		#endif
-		freeAll();
+		freeAllToSystem();
+		}
+}
+namespace stt
+{
+  void BackendPagePool::init (pageTypeEnum const _pageType, uint32_t const _batchSize)
+                                                                            {
+		mPageType = _pageType;
+		batchSize = _batchSize;
 		}
 }
 namespace stt
@@ -380,8 +394,8 @@ namespace stt
 }
 namespace stt
 {
-  void BackendPagePool::freeAll ()
-                       {
+  void BackendPagePool::freeAllToSystem ()
+                               {
 		// Takes all pages held here and deallocates them
 		mMutex.lock();
 		pageHeader* h = atomicTake();
@@ -584,6 +598,14 @@ namespace stt
 }
 namespace stt
 {
+  int const ThreadLocalPagePool::DEFAULT_THREADLOCAL_MIN_FREELIST_PAGES;
+}
+namespace stt
+{
+  int const ThreadLocalPagePool::DEFAULT_THREADLOCAL_MAX_FREELIST_PAGES;
+}
+namespace stt
+{
   ThreadLocalPagePool::ThreadLocalPagePool ()
                               {}
 }
@@ -595,8 +617,7 @@ namespace stt
 		freelist = NULL;
 		nPagesInFreeList = 0;
 		
-		requestAmount = 10;
-		maxFreeListAmount = 20;
+		setMinMaxFreelistPages(DEFAULT_THREADLOCAL_MIN_FREELIST_PAGES, DEFAULT_THREADLOCAL_MAX_FREELIST_PAGES);
 		
 		threadId = _threadId;
 		stt_memset((uint8_t*) &snstt_dbg_logBuffer[0], 0, 64);
@@ -614,6 +635,30 @@ namespace stt
 			stt_dbg_log("~ThreadLocalPagePool %s, nPagesInFreeList: %i\n", getThreadLabel(), nPagesInFreeList);
 			dbg_print_status();
 		#endif
+		returnAllPages();
+		}
+}
+namespace stt
+{
+  void ThreadLocalPagePool::setMinMaxFreelistPages (uint32_t const requestSize, uint32_t const maxCachedSize)
+                                                                                              {
+		requestAmount = requestSize;
+		maxFreeListAmount = maxCachedSize;
+		STT_STL_ASSERT(maxFreeListAmount >= requestAmount*2, "freelist size must be at least twice as big as the request size");
+		}
+}
+namespace stt
+{
+  void ThreadLocalPagePool::getMinMaxFreelistPages (uint32_t & requestSizeOut, uint32_t & maxCachedOut)
+                                                                                        {
+		requestSizeOut = requestAmount;
+		maxCachedOut = maxFreeListAmount;
+		}
+}
+namespace stt
+{
+  void ThreadLocalPagePool::returnAllPages ()
+                              {
 		returnPagesToGlobalPool(freelist, nPagesInFreeList);
 		freelist = NULL;
 		}
@@ -828,7 +873,7 @@ namespace stt
 		#endif
 		int threadId = ThreadLocalPagePool::staticNextId++;
 		pageAlloc.init(pageTypeEnum::PAGE_TYPE_NORMAL, threadId);
-		jumboPageAlloc.init(pageTypeEnum::PAGE_TYPE_NORMAL, threadId);
+		jumboPageAlloc.init(pageTypeEnum::PAGE_TYPE_JUMBO, threadId);
 		}
 }
 namespace stt
@@ -848,8 +893,9 @@ namespace stt
 {
   ThreadSafePageAllocatorImpl::ThreadSafePageAllocatorImpl ()
                                       {
-		PageGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_NORMAL;
-		JumboGlobalFreeList.mPageType = pageTypeEnum::PAGE_TYPE_JUMBO;
+		PageGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_NORMAL, 100);
+		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 10);
+		
 		
 		initThreadLocalAllocators(); // init for this thread
 		}
@@ -901,8 +947,8 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::cleanupGlobalFreeLists ()
                                       {
-		PageGlobalFreeList.freeAll();
-		JumboGlobalFreeList.freeAll();
+		PageGlobalFreeList.freeAllToSystem();
+		JumboGlobalFreeList.freeAllToSystem();
 		}
 }
 namespace stt
@@ -1086,6 +1132,8 @@ namespace stt
     static void initThreadLocalAllocators ();
     static void cleanupThreadLocalAllocators ();
     static PATL_Data * getThreadLocalAllocators ();
+    static ThreadLocalPagePool * getThreadLocalPool (pageTypeEnum const pe);
+    static BackendPagePool * getBackendPool (pageTypeEnum const pe);
     static pageU * allocPage ();
     static void freePage (pageU * page);
     static void allocPages (pageU * * pages, uint32_t const nPages);
@@ -1302,6 +1350,26 @@ namespace stt
   PATL_Data * ThreadSafePageAllocator::getThreadLocalAllocators ()
                                                      {
 		return ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+		}
+}
+namespace stt
+{
+  ThreadLocalPagePool * ThreadSafePageAllocator::getThreadLocalPool (pageTypeEnum const pe)
+                                                                              {
+		PATL_Data* PD = ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+		if (!PD) return NULL;
+		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &PD->pageAlloc;
+		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &PD->jumboPageAlloc;
+		return NULL;
+		}
+}
+namespace stt
+{
+  BackendPagePool * ThreadSafePageAllocator::getBackendPool (pageTypeEnum const pe)
+                                                                      {
+		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &ThreadSafePageAllocatorImpl::get().PageGlobalFreeList;
+		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList;
+		return NULL;
 		}
 }
 namespace stt

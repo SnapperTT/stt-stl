@@ -22,6 +22,18 @@ public:
 	static PATL_Data* getThreadLocalAllocators() {
 		return ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
 		}
+	static ThreadLocalPagePool* getThreadLocalPool(const pageTypeEnum pe) {
+		PATL_Data* PD = ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+		if (!PD) return NULL;
+		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &PD->pageAlloc;
+		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &PD->jumboPageAlloc;
+		return NULL;
+		}
+	static BackendPagePool* getBackendPool(const pageTypeEnum pe) {
+		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &ThreadSafePageAllocatorImpl::get().PageGlobalFreeList;
+		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList;
+		return NULL;
+		}
 	
 	// PageI
 	static pageU* allocPage() {
