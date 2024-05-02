@@ -23,7 +23,7 @@ struct biglyInt {
 
 
 int main (int argc, char ** argv) {
-	stt::ThreadSafePageAllocator::initThreadLocalAllocators(); // must be called at the start of the thread
+	stt::ThreadSafePageAllocator::initThreadLocalPools(); // must be called at the start of the thread
 	
 	// allocate and destroy some stuff
 	stt::pageU* p = stt::ThreadSafePageAllocator::allocPage();
@@ -53,7 +53,10 @@ int main (int argc, char ** argv) {
 	stt::stt_dbg_log("sizeof string128 %i\n", sizeof(stt::string128));
 	stt::stt_dbg_log("sizeof string254 %i\n", sizeof(stt::string256));
 	
-	stt::ThreadSafePageAllocator::cleanupThreadLocalAllocators(); // must be called at the end of the thread
-	stt::ThreadSafePageAllocatorImpl::get().cleanupGlobalFreeLists(); // must be called on program shutdown to free
+	// Cleanup - 
+	// If you are exiting the program you can just ::exit() and forgo cleanup
+	
+	stt::ThreadSafePageAllocator::cleanupThreadLocalPools(); // must be called at the end of a thread, this call cleans up *this* thread's pool
+	stt::ThreadSafePageAllocator::cleanupBackendPools(); // must be called on program shutdown to free all pages in the backend pool to system memory
 	return 1;
 	}
