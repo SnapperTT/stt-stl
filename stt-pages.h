@@ -88,7 +88,7 @@ namespace stt
     ~ BackendPagePool ();
     void init (pageTypeEnum const _pageType, uint32_t const _batchSize);
     void dbg_print_status ();
-    void freeAllToSystem ();
+    uint32_t freeAllToSystem ();
     void freePages (pageHeader * * pages, uint32_t const nPages);
     void atomicMerge (pageHeader * _insert, uint32_t const _nReturned);
     void atomicMerge (pageHeader * _insert);
@@ -168,10 +168,10 @@ namespace stt
     static void raw_free (uint8_t * ptr, uint64_t const sz);
     static ThreadSafePageAllocatorImpl & get ();
     void perf_warning (char const * msg);
-    void initThreadLocalAllocators ();
-    void cleanupThreadLocalAllocators ();
-    void cleanupGlobalFreeLists ();
-    PATL_Data * getThreadLocalAllocators ();
+    void initThreadLocalPools ();
+    void cleanupThreadLocalPools ();
+    uint32_t cleanupBackendPools ();
+    PATL_Data * getThreadLocalPools ();
     void allocPages (pageU * * pages, uint32_t const nPages);
     void freePages (pageU * * pages, uint32_t const nPages);
     void freePagesList (pageU * pageList);
@@ -179,7 +179,7 @@ namespace stt
     void freeJumboPages (pageU * * pages, uint32_t const nPages);
     static void systemAllocate (pageTypeEnum const mPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
     static void systemAllocate_impl (uint32_t const sizeofPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
-    static void systemFreeList (pageHeader * head);
+    static uint32_t systemFreeList (pageHeader * head);
   };
 }
 namespace stt
@@ -394,9 +394,10 @@ namespace stt
 }
 namespace stt
 {
-  void BackendPagePool::freeAllToSystem ()
-                               {
+  uint32_t BackendPagePool::freeAllToSystem ()
+                                   {
 		// Takes all pages held here and deallocates them
+		// returns number of pages deallocated if STT_STL_TRACK_SYSTEM_ALLOCATIONS is defined, else returns 0
 		mMutex.lock();
 		pageHeader* h = atomicTake();
 		#if STT_STL_DEBUG_PAGE
@@ -411,9 +412,10 @@ namespace stt
 		#if STT_STL_DEBUG_PAGE
 		stt_dbg_log("BackendPagePool freeAll: allocFreeList %p\n", allocFreeList);
 		#endif
-		ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
+		uint32_t r = ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
 		allocFreeList = NULL;
 		mMutex.unlock();
+		return r;
 		}
 }
 namespace stt
@@ -897,14 +899,14 @@ namespace stt
 		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 10);
 		
 		
-		initThreadLocalAllocators(); // init for this thread
+		initThreadLocalPools(); // init for this thread
 		}
 }
 namespace stt
 {
   ThreadSafePageAllocatorImpl::~ ThreadSafePageAllocatorImpl ()
                                        {
-		cleanupGlobalFreeLists();
+		cleanupBackendPools();
 		}
 }
 namespace stt
@@ -927,8 +929,8 @@ namespace stt
 }
 namespace stt
 {
-  void ThreadSafePageAllocatorImpl::initThreadLocalAllocators ()
-                                         {
+  void ThreadSafePageAllocatorImpl::initThreadLocalPools ()
+                                    {
 		PATL_Data* r = mTls.getTlsData();
 		if (!r)
 			mTls.setTlsData(new PATL_Data);
@@ -936,8 +938,8 @@ namespace stt
 }
 namespace stt
 {
-  void ThreadSafePageAllocatorImpl::cleanupThreadLocalAllocators ()
-                                            {
+  void ThreadSafePageAllocatorImpl::cleanupThreadLocalPools ()
+                                       {
 		PATL_Data* r = ThreadSafePageAllocatorImpl::get().mTls.getTlsData();
 		if (r) delete r;
 		mTls.setTlsData(NULL);
@@ -945,16 +947,18 @@ namespace stt
 }
 namespace stt
 {
-  void ThreadSafePageAllocatorImpl::cleanupGlobalFreeLists ()
-                                      {
-		PageGlobalFreeList.freeAllToSystem();
-		JumboGlobalFreeList.freeAllToSystem();
+  uint32_t ThreadSafePageAllocatorImpl::cleanupBackendPools ()
+                                       {
+		uint32_t r = 0;
+		r += PageGlobalFreeList.freeAllToSystem();
+		r += JumboGlobalFreeList.freeAllToSystem();
+		return r;
 		}
 }
 namespace stt
 {
-  PATL_Data * ThreadSafePageAllocatorImpl::getThreadLocalAllocators ()
-                                              {
+  PATL_Data * ThreadSafePageAllocatorImpl::getThreadLocalPools ()
+                                         {
 		return mTls.getTlsData();
 		}
 }
@@ -962,7 +966,7 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::allocPages (pageU * * pages, uint32_t const nPages)
                                                               {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: allocPages() without thread_local pools, using global pool");
@@ -976,7 +980,7 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::freePages (pageU * * pages, uint32_t const nPages)
                                                              {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: freePages() without thread_local pools, using global pool");
@@ -990,7 +994,7 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::freePagesList (pageU * pageList)
                                             {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: freePagesList() without thread_local pools, using global pool");
@@ -1004,7 +1008,7 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::allocJumboPages (pageU * * pages, uint32_t const nPages)
                                                                    {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: allocJumboPages() without thread_local pools, using global pool");
@@ -1018,7 +1022,7 @@ namespace stt
 {
   void ThreadSafePageAllocatorImpl::freeJumboPages (pageU * * pages, uint32_t const nPages)
                                                                   {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: freeJumboPages() without thread_local pools, using global pool");
@@ -1087,11 +1091,10 @@ namespace stt
 }
 namespace stt
 {
-  void ThreadSafePageAllocatorImpl::systemFreeList (pageHeader * head)
-                                                     {
-		#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
-			uint32_t nPagesTotal = 0;
-		#endif
+  uint32_t ThreadSafePageAllocatorImpl::systemFreeList (pageHeader * head)
+                                                         {
+		// nPagesTotal is only tracked ifdef STT_STL_TRACK_SYSTEM_ALLOCATIONS
+		uint32_t nPagesTotal = 0;
 		pageHeader* w = head;
 		while (w) {
 			pageHeader* n = w->next;
@@ -1108,6 +1111,7 @@ namespace stt
 		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("SystemAllocate: Freeing %i pages, total allocated: %i\n", nPagesTotal, int(dbg_totalPagesAllocated));
 		#endif
+		return nPagesTotal;
 		}
 }
 #undef LZZ_INLINE
@@ -1129,9 +1133,10 @@ namespace stt
   class ThreadSafePageAllocator
   {
   public:
-    static void initThreadLocalAllocators ();
-    static void cleanupThreadLocalAllocators ();
-    static PATL_Data * getThreadLocalAllocators ();
+    static void initThreadLocalPools ();
+    static void cleanupThreadLocalPools ();
+    static uint32_t cleanupBackendPools ();
+    static PATL_Data * getThreadLocalPools ();
     static ThreadLocalPagePool * getThreadLocalPool (pageTypeEnum const pe);
     static BackendPagePool * getBackendPool (pageTypeEnum const pe);
     static pageU * allocPage ();
@@ -1331,32 +1336,41 @@ namespace stt {
 #define LZZ_INLINE inline
 namespace stt
 {
-  void ThreadSafePageAllocator::initThreadLocalAllocators ()
-                                                {
+  void ThreadSafePageAllocator::initThreadLocalPools ()
+                                           {
 		// MUST be called on thread startup!
-		ThreadSafePageAllocatorImpl::get().initThreadLocalAllocators();
+		ThreadSafePageAllocatorImpl::get().initThreadLocalPools();
 		}
 }
 namespace stt
 {
-  void ThreadSafePageAllocator::cleanupThreadLocalAllocators ()
-                                                   {
+  void ThreadSafePageAllocator::cleanupThreadLocalPools ()
+                                              {
 		// MUST be called on thread end!
-		ThreadSafePageAllocatorImpl::get().cleanupThreadLocalAllocators();
+		ThreadSafePageAllocatorImpl::get().cleanupThreadLocalPools();
 		}
 }
 namespace stt
 {
-  PATL_Data * ThreadSafePageAllocator::getThreadLocalAllocators ()
-                                                     {
-		return ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+  uint32_t ThreadSafePageAllocator::cleanupBackendPools ()
+                                              {
+		// Releases all pages owned by the backend pool back to system memory
+		// if macro STT_STL_TRACK_SYSTEM_ALLOCATIONS is defined then returns number of pages returned		
+		return ThreadSafePageAllocatorImpl::get().cleanupBackendPools();
+		}
+}
+namespace stt
+{
+  PATL_Data * ThreadSafePageAllocator::getThreadLocalPools ()
+                                                {
+		return ThreadSafePageAllocatorImpl::get().getThreadLocalPools();
 		}
 }
 namespace stt
 {
   ThreadLocalPagePool * ThreadSafePageAllocator::getThreadLocalPool (pageTypeEnum const pe)
                                                                               {
-		PATL_Data* PD = ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+		PATL_Data* PD = ThreadSafePageAllocatorImpl::get().getThreadLocalPools();
 		if (!PD) return NULL;
 		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &PD->pageAlloc;
 		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &PD->jumboPageAlloc;
@@ -1419,6 +1433,119 @@ namespace stt
 #ifndef LZZ_OVERRIDE
 	#define LZZ_OVERRIDE override
 #endif
+// page_bump_allocator.hh
+//
+
+#ifndef LZZ_page_bump_allocator_hh
+#define LZZ_page_bump_allocator_hh
+#define LZZ_INLINE inline
+namespace stt
+{
+  class PageBumpAllocatedStorage
+  {
+  public:
+    pageU * page;
+    PageBumpAllocatedStorage ();
+    ~ PageBumpAllocatedStorage ();
+    template <typename T>
+    static constexpr uint32_t roundedSizeOf ();
+    bool contains (void * ptr) const;
+    template <typename T>
+    T * allocate ();
+    template <typename T>
+    void free (T * t);
+    uint32_t getNumAllocations () const;
+    uint32_t getFreeBytes () const;
+  };
+}
+namespace stt
+{
+  template <typename T>
+  LZZ_INLINE constexpr uint32_t PageBumpAllocatedStorage::roundedSizeOf ()
+                                                                      { return sizeof(T); }
+}
+namespace stt
+{
+  LZZ_INLINE bool PageBumpAllocatedStorage::contains (void * ptr) const
+                                                      {
+			uintptr_t pagei = uintptr_t(page);
+			uintptr_t ptri = uintptr_t(ptr);
+			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
+			}
+}
+namespace stt
+{
+  template <typename T>
+  T * PageBumpAllocatedStorage::allocate ()
+                              {
+			T* r = (T*) &(page->ptr()[page->ph.localSize]);
+			page->ph.localSize += roundedSizeOf<T>();
+			page->ph.totalSize++;
+			new (r) T();
+			return r;
+			}
+}
+namespace stt
+{
+  template <typename T>
+  void PageBumpAllocatedStorage::free (T * t)
+                                {
+			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
+				page->ph.localSize -= sizeof(T);
+				}
+			page->ph.totalSize--;
+			t->~T();
+			}
+}
+#undef LZZ_INLINE
+#endif
+#undef LZZ_OVERRIDE
+
+////////////////////////////////////////////////////////////////////////
+
+#ifdef STT_STL_IMPL
+#ifndef STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
+#define STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
+#define LZZ_OVERRIDE
+// page_bump_allocator.cpp
+//
+
+#define LZZ_INLINE inline
+namespace stt
+{
+  PageBumpAllocatedStorage::PageBumpAllocatedStorage ()
+                                           {
+			page = ThreadSafePageAllocator::allocPage();
+			page->initHeader();
+			}
+}
+namespace stt
+{
+  PageBumpAllocatedStorage::~ PageBumpAllocatedStorage ()
+                                            {
+			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
+			ThreadSafePageAllocator::freePage(page);
+			page = NULL;
+			}
+}
+namespace stt
+{
+  uint32_t PageBumpAllocatedStorage::getNumAllocations () const
+                                                   { return page->ph.totalSize; }
+}
+namespace stt
+{
+  uint32_t PageBumpAllocatedStorage::getFreeBytes () const
+                                              { return page->capacity() - page->ph.localSize; }
+}
+#undef LZZ_INLINE
+#undef LZZ_OVERRIDE
+#endif //STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
+#endif //STT_STL_IMPL_IMPL
+// This file is autogenerated. See look at the .lzz files in the src/ directory for a more human-friendly version
+#ifndef LZZ_OVERRIDE
+	#define LZZ_OVERRIDE override
+#endif
 // page_queue.hh
 //
 
@@ -1446,7 +1573,6 @@ namespace stt
       T * ptr;
       T * localEnd;
       P * currentPage;
-      uint32_t idx;
       void init (P * page);
       void incr ();
       void incr_nonInline ();
@@ -1464,6 +1590,7 @@ namespace stt
     pageQueueImpl & operator = (pageQueueImpl const & other);
   public:
     static P * allocPage ();
+    static P * allocPages (uint32_t const nPages);
     static void freePage (P * page);
     static void freePagesList (P * pageList);
     static constexpr size_t pageLocalCapacity ();
@@ -1476,29 +1603,13 @@ namespace stt
     void swap (pageQueueImpl & other);
     void concatenate (STT_PAGEQUEUE_MVSEM other);
     void extendTailIfRequired ();
+    P * trueTail () const;
+    void reserve (uint32_t const sz);
     void push_back (T const & t);
     void push_back (T&& t);
+    iterator iter_at (uint32_t const idx);
     iterator begin ();
     iterator end ();
-  };
-}
-namespace stt
-{
-  class PageBumpAllocatedStorage
-  {
-  public:
-    pageU * page;
-    PageBumpAllocatedStorage ();
-    ~ PageBumpAllocatedStorage ();
-    template <typename T>
-    static constexpr uint32_t roundedSizeOf ();
-    bool contains (void * ptr) const;
-    template <typename T>
-    T * allocate ();
-    template <typename T>
-    void free (T * t);
-    uint32_t getNumAllocations () const;
-    uint32_t getFreeBytes () const;
   };
 }
 namespace stt
@@ -1609,6 +1720,17 @@ namespace stt
 namespace stt
 {
   template <typename T, typename P>
+  P * pageQueueImpl <T, P>::allocPages (uint32_t const nPages)
+                                                             {
+			if (nPages == 0) return NULL;
+			P* store[nPages];
+			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
+			return pageHeader::buildList((pageHeader**) &store[0], nPages);
+			}
+}
+namespace stt
+{
+  template <typename T, typename P>
   void pageQueueImpl <T, P>::freePage (P * page)
                                               {
 			ThreadSafePageAllocatorTemplates::freeGeneric<P>(page);
@@ -1660,7 +1782,7 @@ namespace stt
 			if constexpr(std::is_trivially_destructible<T>::value) {
 				// we don't need to invoke destructors so we can just throw away the linked list
 				if (head) {
-					head->ph.cachedWorkingEnd = (pageHeader*) tail;
+					head->ph.cachedWorkingEnd = (pageHeader*) trueTail();
 					freePagesList(head);
 					}
 				}
@@ -1735,9 +1857,42 @@ namespace stt
 				tail = head;
 				}
 			if (tail->ph.localSize >= pageLocalCapacity()) {
-				tail->ph.next = (pageHeader*) allocPage();
+				if (!tail->ph.next)
+					tail->ph.next = (pageHeader*) allocPage();
 				tail = (P*) tail->ph.next;
 				}
+			}
+}
+namespace stt
+{
+  template <typename T, typename P>
+  P * pageQueueImpl <T, P>::trueTail () const
+                                    {
+			// returns the true end of the linked list
+			P* t = tail;
+			if (!t) return t;
+			while (t->ph.next)
+				t = (P*) t->ph.next;
+			return t;
+			}
+}
+namespace stt
+{
+  template <typename T, typename P>
+  LZZ_INLINE void pageQueueImpl <T, P>::reserve (uint32_t const sz)
+                                                       {
+			// no-op
+			// TBD - allocates pages and links them. Tail is set to the push_back write-head but trueTail() is the end of allocated storage
+			if (sz <= size()) return;
+			if (tail)
+				if (tail->ph.next)
+					return; // pages are already preallocated
+			
+			//                   needed          avaliable in tail page
+			const int32_t want = (sz - size()) - (pageLocalCapacity() - tail->ph.localSize);
+			if (want <= 0) return; // already capacity avaliable
+			uint32_t nPagesToAllocate = want/pageLocalCapacity();
+			tail->ph.next = allocPages(nPagesToAllocate);
 			}
 }
 namespace stt
@@ -1756,11 +1911,32 @@ namespace stt
   template <typename T, typename P>
   LZZ_INLINE void pageQueueImpl <T, P>::push_back (T&& t)
                                                   {
-			stt_dbg_log("move semantics!\n");
+			//stt_dbg_log("move semantics!\n");
 			extendTailIfRequired();
 			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(std::move(t));
 			tail->ph.localSize++;
 			head->ph.totalSize++;
+			}
+}
+namespace stt
+{
+  template <typename T, typename P>
+  typename pageQueueImpl <T, P>::iterator pageQueueImpl <T, P>::iter_at (uint32_t const idx)
+                                                     {
+			// returns an iterator at a specified index
+			if (!head) return end();
+			if (idx >= size()) return end();
+			uint32_t idx2 = idx;
+			P* w = head;
+			while (w && w->ph.localSize >= idx2) {
+				idx2 -= w->ph.localSize;
+				w = (P*) w->ph.next;
+				}
+			if (!w) return end();
+			iterator it;
+			it.init(w);
+			it.ptr += idx2;
+			return it;
 			}
 }
 namespace stt
@@ -1783,45 +1959,6 @@ namespace stt
 			return  it;
 			}
 }
-namespace stt
-{
-  template <typename T>
-  LZZ_INLINE constexpr uint32_t PageBumpAllocatedStorage::roundedSizeOf ()
-                                                                      { return sizeof(T); }
-}
-namespace stt
-{
-  LZZ_INLINE bool PageBumpAllocatedStorage::contains (void * ptr) const
-                                                      {
-			uintptr_t pagei = uintptr_t(page);
-			uintptr_t ptri = uintptr_t(ptr);
-			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
-			}
-}
-namespace stt
-{
-  template <typename T>
-  T * PageBumpAllocatedStorage::allocate ()
-                              {
-			T* r = (T*) &(page->ptr()[page->ph.localSize]);
-			page->ph.localSize += roundedSizeOf<T>();
-			page->ph.totalSize++;
-			new (r) T();
-			return r;
-			}
-}
-namespace stt
-{
-  template <typename T>
-  void PageBumpAllocatedStorage::free (T * t)
-                                {
-			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
-				page->ph.localSize -= sizeof(T);
-				}
-			page->ph.totalSize--;
-			t->~T();
-			}
-}
 #undef LZZ_INLINE
 #endif
 #undef LZZ_OVERRIDE
@@ -1836,33 +1973,6 @@ namespace stt
 //
 
 #define LZZ_INLINE inline
-namespace stt
-{
-  PageBumpAllocatedStorage::PageBumpAllocatedStorage ()
-                                           {
-			page = ThreadSafePageAllocator::allocPage();
-			page->initHeader();
-			}
-}
-namespace stt
-{
-  PageBumpAllocatedStorage::~ PageBumpAllocatedStorage ()
-                                            {
-			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
-			ThreadSafePageAllocator::freePage(page);
-			page = NULL;
-			}
-}
-namespace stt
-{
-  uint32_t PageBumpAllocatedStorage::getNumAllocations () const
-                                                   { return page->ph.totalSize; }
-}
-namespace stt
-{
-  uint32_t PageBumpAllocatedStorage::getFreeBytes () const
-                                              { return page->capacity() - page->ph.localSize; }
-}
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
 #endif //STT_STL_IMPL_DOUBLE_GUARD_page_queue

@@ -11,19 +11,24 @@ namespace stt {
 class ThreadSafePageAllocator {
 	// Public facing api for the allocator
 public:
-	static void initThreadLocalAllocators() {
+	static void initThreadLocalPools() {
 		// MUST be called on thread startup!
-		ThreadSafePageAllocatorImpl::get().initThreadLocalAllocators();
+		ThreadSafePageAllocatorImpl::get().initThreadLocalPools();
 		}
-	static void cleanupThreadLocalAllocators() {
+	static void cleanupThreadLocalPools() {
 		// MUST be called on thread end!
-		ThreadSafePageAllocatorImpl::get().cleanupThreadLocalAllocators();
+		ThreadSafePageAllocatorImpl::get().cleanupThreadLocalPools();
 		}
-	static PATL_Data* getThreadLocalAllocators() {
-		return ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+	static uint32_t cleanupBackendPools() {
+		// Releases all pages owned by the backend pool back to system memory
+		// if macro STT_STL_TRACK_SYSTEM_ALLOCATIONS is defined then returns number of pages returned		
+		return ThreadSafePageAllocatorImpl::get().cleanupBackendPools();
+		}
+	static PATL_Data* getThreadLocalPools() {
+		return ThreadSafePageAllocatorImpl::get().getThreadLocalPools();
 		}
 	static ThreadLocalPagePool* getThreadLocalPool(const pageTypeEnum pe) {
-		PATL_Data* PD = ThreadSafePageAllocatorImpl::get().getThreadLocalAllocators();
+		PATL_Data* PD = ThreadSafePageAllocatorImpl::get().getThreadLocalPools();
 		if (!PD) return NULL;
 		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &PD->pageAlloc;
 		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &PD->jumboPageAlloc;

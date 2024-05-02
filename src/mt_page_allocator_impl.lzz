@@ -134,8 +134,9 @@ public:
 		mMutex.unlock();
 		}
 	
-	void freeAllToSystem() {
+	uint32_t freeAllToSystem() {
 		// Takes all pages held here and deallocates them
+		// returns number of pages deallocated if STT_STL_TRACK_SYSTEM_ALLOCATIONS is defined, else returns 0
 		mMutex.lock();
 		pageHeader* h = atomicTake();
 		#if STT_STL_DEBUG_PAGE
@@ -150,9 +151,10 @@ public:
 		#if STT_STL_DEBUG_PAGE
 		stt_dbg_log("BackendPagePool freeAll: allocFreeList %p\n", allocFreeList);
 		#endif
-		ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
+		uint32_t r = ThreadSafePageAllocatorImpl::systemFreeList(allocFreeList);
 		allocFreeList = NULL;
 		mMutex.unlock();
+		return r;
 		}
 	
 	void freePages(pageHeader** pages, const uint32_t nPages) {
@@ -668,10 +670,10 @@ public:
 		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 10);
 		
 		
-		initThreadLocalAllocators(); // init for this thread
+		initThreadLocalPools(); // init for this thread
 		}
 	~ThreadSafePageAllocatorImpl() {
-		cleanupGlobalFreeLists();
+		cleanupBackendPools();
 		}
 	
 	static uint8_t* raw_alloc(const uint64_t sz) { return new uint8_t[sz]; }
@@ -686,27 +688,29 @@ public:
 		stt_dbg_log("stt::ThreadSafePageAllocator WARNING: %s\n", msg);
 		}
 		
-	void initThreadLocalAllocators() {
+	void initThreadLocalPools() {
 		PATL_Data* r = mTls.getTlsData();
 		if (!r)
 			mTls.setTlsData(new PATL_Data);
 		}
-	void cleanupThreadLocalAllocators() {
+	void cleanupThreadLocalPools() {
 		PATL_Data* r = ThreadSafePageAllocatorImpl::get().mTls.getTlsData();
 		if (r) delete r;
 		mTls.setTlsData(NULL);
 		}
-	void cleanupGlobalFreeLists() {
-		PageGlobalFreeList.freeAllToSystem();
-		JumboGlobalFreeList.freeAllToSystem();
+	uint32_t cleanupBackendPools() {
+		uint32_t r = 0;
+		r += PageGlobalFreeList.freeAllToSystem();
+		r += JumboGlobalFreeList.freeAllToSystem();
+		return r;
 		}
-	PATL_Data* getThreadLocalAllocators() {
+	PATL_Data* getThreadLocalPools() {
 		return mTls.getTlsData();
 		}
 	
 	// Invokes the thread_local allocators
 	void allocPages(pageU** pages, const uint32_t nPages) {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: allocPages() without thread_local pools, using global pool");
@@ -717,7 +721,7 @@ public:
 		}
 	
 	void freePages(pageU** pages, const uint32_t nPages) {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: freePages() without thread_local pools, using global pool");
@@ -728,7 +732,7 @@ public:
 		}
 	
 	void freePagesList(pageU* pageList) {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: freePagesList() without thread_local pools, using global pool");
@@ -739,7 +743,7 @@ public:
 		}
 	
 	void allocJumboPages(pageU** pages, const uint32_t nPages) {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: allocJumboPages() without thread_local pools, using global pool");
@@ -750,7 +754,7 @@ public:
 		}
 	
 	void freeJumboPages(pageU** pages, const uint32_t nPages) {
-		PATL_Data* LA = getThreadLocalAllocators();
+		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
 			perf_warning("PERF: freeJumboPages() without thread_local pools, using global pool");
@@ -812,10 +816,9 @@ public:
 		#endif
 		}
 		
-	static void systemFreeList(pageHeader* head) {
-		#if STT_STL_TRACK_SYSTEM_ALLOCATIONS
-			uint32_t nPagesTotal = 0;
-		#endif
+	static uint32_t systemFreeList(pageHeader* head) {
+		// nPagesTotal is only tracked ifdef STT_STL_TRACK_SYSTEM_ALLOCATIONS
+		uint32_t nPagesTotal = 0;
 		pageHeader* w = head;
 		while (w) {
 			pageHeader* n = w->next;
@@ -832,6 +835,7 @@ public:
 		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("SystemAllocate: Freeing %i pages, total allocated: %i\n", nPagesTotal, int(dbg_totalPagesAllocated));
 		#endif
+		return nPagesTotal;
 		}
 	};
 	

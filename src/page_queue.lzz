@@ -30,7 +30,6 @@ namespace stt {
 			T* ptr;
 			T* localEnd;
 			P* currentPage;
-			uint32_t idx;
 			
 			void init(P* page) {
 				currentPage = page;
@@ -89,6 +88,12 @@ namespace stt {
 			p->initHeader();
 			return p;
 			}
+		static P* allocPages (const uint32_t nPages) {
+			if (nPages == 0) return NULL;
+			P* store[nPages];
+			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
+			return pageHeader::buildList((pageHeader**) &store[0], nPages);
+			}
 		static void freePage(P* page) {
 			ThreadSafePageAllocatorTemplates::freeGeneric<P>(page);
 			}
@@ -108,7 +113,7 @@ namespace stt {
 			if constexpr(std::is_trivially_destructible<T>::value) {
 				// we don't need to invoke destructors so we can just throw away the linked list
 				if (head) {
-					head->ph.cachedWorkingEnd = (pageHeader*) tail;
+					head->ph.cachedWorkingEnd = (pageHeader*) trueTail();
 					freePagesList(head);
 					}
 				}
@@ -167,9 +172,34 @@ namespace stt {
 				tail = head;
 				}
 			if (tail->ph.localSize >= pageLocalCapacity()) {
-				tail->ph.next = (pageHeader*) allocPage();
+				if (!tail->ph.next)
+					tail->ph.next = (pageHeader*) allocPage();
 				tail = (P*) tail->ph.next;
 				}
+			}
+		
+		P* trueTail() const {
+			// returns the true end of the linked list
+			P* t = tail;
+			if (!t) return t;
+			while (t->ph.next)
+				t = (P*) t->ph.next;
+			return t;
+			}
+		
+		inline void reserve(const uint32_t sz) {
+			// no-op
+			// TBD - allocates pages and links them. Tail is set to the push_back write-head but trueTail() is the end of allocated storage
+			if (sz <= size()) return;
+			if (tail)
+				if (tail->ph.next)
+					return; // pages are already preallocated
+			
+			//                   needed          avaliable in tail page
+			const int32_t want = (sz - size()) - (pageLocalCapacity() - tail->ph.localSize);
+			if (want <= 0) return; // already capacity avaliable
+			uint32_t nPagesToAllocate = want/pageLocalCapacity();
+			tail->ph.next = allocPages(nPagesToAllocate);
 			}
 		
 		inline void push_back(const T& t) {
@@ -180,13 +210,30 @@ namespace stt {
 			}
 		
 		inline void push_back(T__MVSEM t) {
-			stt_dbg_log("move semantics!\n");
+			//stt_dbg_log("move semantics!\n");
 			extendTailIfRequired();
 			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(std::move(t));
 			tail->ph.localSize++;
 			head->ph.totalSize++;
 			}
-			
+		
+		iterator iter_at(const uint32_t idx) {
+			// returns an iterator at a specified index
+			if (!head) return end();
+			if (idx >= size()) return end();
+			uint32_t idx2 = idx;
+			P* w = head;
+			while (w && w->ph.localSize >= idx2) {
+				idx2 -= w->ph.localSize;
+				w = (P*) w->ph.next;
+				}
+			if (!w) return end();
+			iterator it;
+			it.init(w);
+			it.ptr += idx2;
+			return it;
+			}
+		
 		iterator begin() {
 			iterator it;
 			it.init(head);
@@ -199,56 +246,6 @@ namespace stt {
 			return  it;
 			}
 		
-		};
-		
-
-	class PageBumpAllocatedStorage {
-	public:
-	#warning move to new file
-		// todo: move to seperate file
-		// used for collections of small objects with similar lifetimes. Stores them in a page
-		pageU* page; // custom fields being used - totalSize = totalAllocations
-		
-		PageBumpAllocatedStorage() {
-			page = ThreadSafePageAllocator::allocPage();
-			page->initHeader();
-			}
-		
-		~PageBumpAllocatedStorage() {
-			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
-			ThreadSafePageAllocator::freePage(page);
-			page = NULL;
-			}
-		
-		template <typename T>
-		inline static STT_CONSTEXPR__uint32_t roundedSizeOf() { return sizeof(T); }
-		
-		inline bool contains(void* ptr) const {
-			uintptr_t pagei = uintptr_t(page);
-			uintptr_t ptri = uintptr_t(ptr);
-			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
-			}
-		
-		template <typename T>
-		T* allocate() {
-			T* r = (T*) &(page->ptr()[page->ph.localSize]);
-			page->ph.localSize += roundedSizeOf<T>();
-			page->ph.totalSize++;
-			new (r) T();
-			return r;
-			}
-		
-		template <typename T>
-		void free(T* t) {
-			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
-				page->ph.localSize -= sizeof(T);
-				}
-			page->ph.totalSize--;
-			t->~T();
-			}
-			
-		uint32_t getNumAllocations() const { return page->ph.totalSize; }
-		uint32_t getFreeBytes() const { return page->capacity() - page->ph.localSize; }
 		};
 	}
 
