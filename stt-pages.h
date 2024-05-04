@@ -1928,7 +1928,7 @@ namespace stt
 			if (idx >= size()) return end();
 			uint32_t idx2 = idx;
 			P* w = head;
-			while (w && w->ph.localSize >= idx2) {
+			while (w && w->ph.localSize < idx2) {
 				idx2 -= w->ph.localSize;
 				w = (P*) w->ph.next;
 				}
