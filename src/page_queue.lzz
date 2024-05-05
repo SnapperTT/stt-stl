@@ -1,4 +1,4 @@
-#define STT_PAGEQUEUE_NOCOPY(X) \
+#define STT_STT_NOCOPY(X) \
 private:								\
 	X(const X& other);					\
 	X& operator =(const X & other);		\
@@ -14,12 +14,13 @@ namespace stt {
 	}
 
 #define STT_PAGEQUEUE_MVSEM pageQueueImpl&&
+#define STT_PAGEQUEUEBUMPSTORAGE_MVSEM pageQueueBumpStorage&&
 #end
 
 #src
 #end
 
-namespace stt {
+namespace stt {	
 	template<typename T, typename P>
 	struct pageQueueImpl {
 		// Purpose: a thin std::vector replacement with discontigious storage of fixed-size blocks
@@ -80,7 +81,7 @@ namespace stt {
 		inline void move_impl(STT_PAGEQUEUE_MVSEM other) { head = other.head; tail = other.tail; other.head = NULL; other.tail = NULL; }
 		inline pageQueueImpl(STT_PAGEQUEUE_MVSEM other) { move_impl(std::move(other)); }
 		inline pageQueueImpl<T,P>& operator= (STT_PAGEQUEUE_MVSEM other) { clear(); move_impl(std::move(other)); return *this; }
-		STT_PAGEQUEUE_NOCOPY(pageQueueImpl)
+		STT_STT_NOCOPY(pageQueueImpl)
 		
 		// Allocators/deallocators go here
 		static P* allocPage () {
@@ -100,13 +101,41 @@ namespace stt {
 		static void freePagesList(P* pageList) {
 			ThreadSafePageAllocatorTemplates::freeGenericList<P>(pageList);
 			}
+			
+		// psuedo-private methods
+		void extendTailIfRequired() {
+			if (!tail || tail->ph.localSize >= pageLocalCapacity())
+				extendTail();
+			}
 		
+		void extendTail () {
+			if (!tail) {
+				head = allocPage();
+				tail = head;
+				return;
+				}
+			if (!tail->ph.next)
+				tail->ph.next = (pageHeader*) allocPage();
+			tail = (P*) tail->ph.next;
+			}
+		
+		P* trueTail() const {
+			// returns the true end of the linked list
+			P* t = tail;
+			if (!t) return t;
+			while (t->ph.next)
+				t = (P*) t->ph.next;
+			return t;
+			}
+		
+		// capacity
 		static STT_CONSTEXPR__size_t pageLocalCapacity()         { return P::capacity() / sizeof(T);  }
 		static STT_CONSTEXPR__T* pagePtr(P* const p)             { return (T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
 		static const STT_CONSTEXPR__T* pagePtr(const P* const p) { return (const T*) &p->_data[STT_PAGE_HEADER_SIZE]; }
-		
+				
 		inline uint32_t size() const { return head ? head->ph.totalSize : 0; }
 		uint32_t numPages () const { return head ? head->ph.listLength() : 0; }
+		
 		
 		// std::vector like stuff goes here:
 		void clear() {
@@ -123,13 +152,19 @@ namespace stt {
 				while (w) {
 					P* t = w;
 					w = (P*) w->ph.next;
-					for (uint32_t i = 0; i < t.ph.localSize; ++i)
-						pagePtr(t)[i].~T();
+					call_destructors_for_page(t);
 					freePage(t);
 					}
 				}
 			head = NULL;
 			tail = NULL;
+			}
+			
+		static void call_destructors_for_page(P* t) {
+			T* arr = pagePtr(t);
+			const uint32_t sz = t->ph.localSize;
+			for (uint32_t i = 0; i < sz; ++i)
+				arr[i].~T();
 			}
 			
 		void clearKeepingFirstPage() {
@@ -140,8 +175,12 @@ namespace stt {
 				tmp.head->ph.cachedWorkingEnd = tail;
 				tmp.tail = tail;
 				tmp.clear();
-				head = NULL;
+				head->ph.next = NULL;
 				tail = head; 
+				if constexpr(!std::is_trivially_destructible<T>::value)
+					call_destructors_for_page(head);
+				head->ph.localSize = 0;
+				head->ph.totalSize = 0;
 				}
 			}
 		
@@ -164,27 +203,6 @@ namespace stt {
 				}
 			other.head = NULL;
 			other.tail = NULL;
-			}
-		
-		void extendTailIfRequired() {
-			if (!tail) {
-				head = allocPage();
-				tail = head;
-				}
-			if (tail->ph.localSize >= pageLocalCapacity()) {
-				if (!tail->ph.next)
-					tail->ph.next = (pageHeader*) allocPage();
-				tail = (P*) tail->ph.next;
-				}
-			}
-		
-		P* trueTail() const {
-			// returns the true end of the linked list
-			P* t = tail;
-			if (!t) return t;
-			while (t->ph.next)
-				t = (P*) t->ph.next;
-			return t;
 			}
 		
 		inline void reserve(const uint32_t sz) {
@@ -245,7 +263,109 @@ namespace stt {
 			it.init(NULL);
 			return  it;
 			}
+		};
+	
+	
+	template<typename P>
+	struct pageQueueBumpStorage {
+		// Purpose: storage for interned strings (or arbitary pod). Each string must be smaller than a page in size
+		// This is one-way storage - each push_back returns a string_view and each store cannot be resized or moved.
+		// You must track these string_views yourself
+		// You cannot erase, just purge the entire list with (clear())
+		// empty strings are not stored, an empty string_view is returned if you push_back
+		pageQueueImpl<char,P> store;
+		typedef uint16_t writeSizeType; // writeSizeType(-1) is the maximum element size
 		
+		pageQueueBumpStorage() {}
+		~pageQueueBumpStorage() {}
+		
+		// pageQueues cannot be copied, only moved
+		// move assign and move construct are needed for std::swap auto implementation
+		inline pageQueueBumpStorage(STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) { store.move_impl(std::move(store.other)); }
+		inline pageQueueBumpStorage<P>& operator= (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) { clear(); store.move_impl(std::move(store.other)); return *this; }
+		STT_STT_NOCOPY(pageQueueBumpStorage)
+		
+		
+		inline stt::string_view push_back(const stt::string_view& sv) {
+			return push_back_compact(sv.data(), sv.size());
+			}
+		stt::string_view push_back(const char* str, const uint32_t size) {
+			// Fast - tacks on the string at the end
+			if (!size) return stt::string_view(NULL, 0);
+			const uint32_t wantsSize = size + sizeof(writeSizeType);
+			if (wantsSize > writeSizeType(-1))
+				stt::error::array_out_of_bounds(size, writeSizeType(-1));
+			if (wantsSize > store.pageLocalCapacity())
+				stt::error::array_out_of_bounds(wantsSize, store.pageLocalCapacity());
+			
+			store.extendTailIfRequired();
+			if (remainingBytesIn(store.tail) < wantsSize)
+				store.extendTail();
+			return writeBufferRaw(store.tail, str, size);
+			}
+			
+		struct pushBackLookupHint { 
+			P* page;
+			uint32_t avaliableSize;
+			inline pushBackLookupHint() : page(NULL), avaliableSize(0) {}
+			};
+		
+		inline stt::string_view push_back_compact(const stt::string_view& sv, pushBackLookupHint* hint = NULL) {
+			return push_back_compact(sv.data(), sv.size());
+			}
+		stt::string_view push_back_compact(const char* str, const uint32_t size, pushBackLookupHint* hint = NULL) {
+			// Slow - itterates through list to find first page that'll fit this string and puts there
+			// usage: 1. `push_back_compact(str, size);` or
+			//        2. `pushBackLookupHint hint; for (each_string) { push_back_compact(str, size, &hint); }`
+			// if hint is non-null then start searching from (*hint). This optimises for the case in a loop where a
+			// big alloc causes a large gap in the middle of the list that can be filled with small 
+			if (!size) return stt::string_view(NULL, 0);
+			const uint32_t wantsSize = size + sizeof(writeSizeType);
+			if (wantsSize > store.pageLocalCapacity())
+				stt::error::array_out_of_bounds(wantsSize, store.pageLocalCapacity());
+			
+			P* page = hint ? hint->page : store.head;
+			
+			while (page) {
+				uint32_t remainingBytes = remainingBytesIn(page);
+				if (hint) {
+					// update biggest free-space page if avaliable
+					if (remainingBytes > hint->avaliableSize) {
+						hint->page = page;
+						hint->avaliableSize = remainingBytes;
+						}
+					}
+				if (remainingBytes >= wantsSize) {
+					if (hint->page == page)
+						hint->avaliableSize -= wantsSize;
+					return writeBufferRaw(page, str, size);
+					}
+				page = (P*) page->ph.next;
+				}
+			if (hint) {
+				hint->page = NULL; // nothing fit so lookup again next insert
+				hint->avaliableSize = 0;
+				}
+			// fallback to tail push_back
+			return push_back(str, size);
+			}
+		
+		inline void swap(pageQueueBumpStorage& other) { store.swap(other); }
+		inline void clear() { store.clear(); }
+		inline void clearKeepingFirstPage() { store.clearKeepingFirstPage(); }
+		
+		inline uint32_t remainingBytesIn(P* t) const { return store.pageLocalCapacity() - t->ph.localSize; }
+			
+		stt::string_view writeBufferRaw(P* page, const char * str, const writeSizeType size) {
+			char* ptr = store.pagePtr(page);
+			*((writeSizeType*) ptr) = size;
+			ptr += sizeof(writeSizeType);
+			stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
+			
+			page->ph.localSize += size + sizeof(writeSizeType);
+			
+			return stt::string_view(ptr, size);
+			}
 		};
 	}
 
