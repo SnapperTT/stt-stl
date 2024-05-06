@@ -742,7 +742,7 @@ public:
 		LA->pageAlloc.freePagesList((pageHeader*) pageList);
 		}
 	
-	void allocJumboPages(pageU** pages, const uint32_t nPages) {
+	void allocJumboPages(jumboPageU** pages, const uint32_t nPages) {
 		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
@@ -753,7 +753,7 @@ public:
 		LA->jumboPageAlloc.allocPages((pageHeader**) pages, nPages);
 		}
 	
-	void freeJumboPages(pageU** pages, const uint32_t nPages) {
+	void freeJumboPages(jumboPageU** pages, const uint32_t nPages) {
 		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
@@ -762,6 +762,17 @@ public:
 			return;
 			}
 		LA->jumboPageAlloc.freePages((pageHeader**) pages, nPages);
+		}
+		
+	void freeJumboPagesList(jumboPageU* pageList) {
+		PATL_Data* LA = getThreadLocalPools();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freeJumboPagesList() without thread_local pools, using global pool");
+			JumboGlobalFreeList.atomicMerge((pageHeader*) pageList);
+			return;
+			}
+		LA->jumboPageAlloc.freePagesList((pageHeader*) pageList);
 		}
 			
 	// Used as last resort

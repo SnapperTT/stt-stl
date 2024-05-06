@@ -175,8 +175,9 @@ namespace stt
     void allocPages (pageU * * pages, uint32_t const nPages);
     void freePages (pageU * * pages, uint32_t const nPages);
     void freePagesList (pageU * pageList);
-    void allocJumboPages (pageU * * pages, uint32_t const nPages);
-    void freeJumboPages (pageU * * pages, uint32_t const nPages);
+    void allocJumboPages (jumboPageU * * pages, uint32_t const nPages);
+    void freeJumboPages (jumboPageU * * pages, uint32_t const nPages);
+    void freeJumboPagesList (jumboPageU * pageList);
     static void systemAllocate (pageTypeEnum const mPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
     static void systemAllocate_impl (uint32_t const sizeofPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
     static uint32_t systemFreeList (pageHeader * head);
@@ -1006,8 +1007,8 @@ namespace stt
 }
 namespace stt
 {
-  void ThreadSafePageAllocatorImpl::allocJumboPages (pageU * * pages, uint32_t const nPages)
-                                                                   {
+  void ThreadSafePageAllocatorImpl::allocJumboPages (jumboPageU * * pages, uint32_t const nPages)
+                                                                        {
 		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
@@ -1020,8 +1021,8 @@ namespace stt
 }
 namespace stt
 {
-  void ThreadSafePageAllocatorImpl::freeJumboPages (pageU * * pages, uint32_t const nPages)
-                                                                  {
+  void ThreadSafePageAllocatorImpl::freeJumboPages (jumboPageU * * pages, uint32_t const nPages)
+                                                                       {
 		PATL_Data* LA = getThreadLocalPools();
 		if (!LA) {
 			// free after TL shutdown!
@@ -1030,6 +1031,20 @@ namespace stt
 			return;
 			}
 		LA->jumboPageAlloc.freePages((pageHeader**) pages, nPages);
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocatorImpl::freeJumboPagesList (jumboPageU * pageList)
+                                                      {
+		PATL_Data* LA = getThreadLocalPools();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freeJumboPagesList() without thread_local pools, using global pool");
+			JumboGlobalFreeList.atomicMerge((pageHeader*) pageList);
+			return;
+			}
+		LA->jumboPageAlloc.freePagesList((pageHeader*) pageList);
 		}
 }
 namespace stt
@@ -1144,6 +1159,11 @@ namespace stt
     static void allocPages (pageU * * pages, uint32_t const nPages);
     static void freePages (pageU * * pages, uint32_t const nPages);
     static void freePagesList (pageU * pageLinkedList);
+    static jumboPageU * allocJumboPage ();
+    static void freeJumboPage (jumboPageU * page);
+    static void allocJumboPages (jumboPageU * * pages, uint32_t const nPages);
+    static void freeJumboPages (jumboPageU * * pages, uint32_t const nPages);
+    static void freeJumboPagesList (jumboPageU * pageLinkedList);
     static int dbg_getNPagesAllocated ();
   };
 }
@@ -1225,6 +1245,46 @@ namespace stt
   {
     template <>
     void freeGenericList (pageU * t);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    jumboPageU * allocGeneric ();
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void freeGeneric (jumboPageU * t);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void allocGenericBatch (jumboPageU * * t, uint32_t const n);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void freeGenericBatch (jumboPageU * * t, uint32_t const n);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void freeGenericList (jumboPageU * t);
   }
 }
 namespace stt
@@ -1315,6 +1375,51 @@ namespace stt
     template <>
     LZZ_INLINE void freeGenericList (pageU * t)
                                                          { ThreadSafePageAllocator::freePagesList(t); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE jumboPageU * allocGeneric ()
+                                                          { return ThreadSafePageAllocator::allocJumboPage(); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void freeGeneric (jumboPageU * t)
+                                                          { ThreadSafePageAllocator::freeJumboPage(t); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void allocGenericBatch (jumboPageU * * t, uint32_t const n)
+                                                                                   { ThreadSafePageAllocator::allocJumboPages(t, n); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void freeGenericBatch (jumboPageU * * t, uint32_t const n)
+                                                                                   { ThreadSafePageAllocator::freeJumboPages(t, n); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void freeGenericList (jumboPageU * t)
+                                                              { ThreadSafePageAllocator::freeJumboPagesList(t); }
   }
 }
 #undef LZZ_INLINE
@@ -1422,6 +1527,40 @@ namespace stt
 }
 namespace stt
 {
+  jumboPageU * ThreadSafePageAllocator::allocJumboPage ()
+                                            {
+		// Allocates a single pageU
+		jumboPageU* arr[1];
+		ThreadSafePageAllocatorImpl::get().allocJumboPages(&arr[0], 1);
+		return arr[0];
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::freeJumboPage (jumboPageU * page)
+                                                    {
+		jumboPageU* arr[1];
+		arr[0] = page;
+		ThreadSafePageAllocatorImpl::get().freeJumboPages(&arr[0], 1);
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::allocJumboPages (jumboPageU * * pages, uint32_t const nPages)
+                                                                               { ThreadSafePageAllocatorImpl::get().allocJumboPages(pages, nPages); }
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::freeJumboPages (jumboPageU * * pages, uint32_t const nPages)
+                                                                               { ThreadSafePageAllocatorImpl::get().freeJumboPages(pages, nPages); }
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::freeJumboPagesList (jumboPageU * pageLinkedList)
+                                                                   { ThreadSafePageAllocatorImpl::get().freeJumboPagesList(pageLinkedList); }
+}
+namespace stt
+{
   int ThreadSafePageAllocator::dbg_getNPagesAllocated ()
                                             { return ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated; }
 }
@@ -1433,69 +1572,146 @@ namespace stt
 #ifndef LZZ_OVERRIDE
 	#define LZZ_OVERRIDE override
 #endif
-// page_bump_allocator.hh
+// page.hh
 //
 
-#ifndef LZZ_page_bump_allocator_hh
-#define LZZ_page_bump_allocator_hh
+#ifndef LZZ_page_hh
+#define LZZ_page_hh
+#ifndef STT_PAGE_HEADER_SIZE
+	#define STT_PAGE_HEADER_SIZE 64
+#endif
+#ifndef STT_PAGE_SIZE
+	#define STT_PAGE_SIZE 4080	// this makes alignement better 
+#endif
+#ifndef STT_JUMBO_PAGE_SIZE
+	#define STT_JUMBO_PAGE_SIZE 65520
+#endif
+
+	
 #define LZZ_INLINE inline
 namespace stt
 {
-  class PageBumpAllocatedStorage
+  enum pageTypeEnum
   {
-  public:
-    pageU * page;
-    PageBumpAllocatedStorage ();
-    ~ PageBumpAllocatedStorage ();
-    template <typename T>
-    static constexpr uint32_t roundedSizeOf ();
-    bool contains (void * ptr) const;
-    template <typename T>
-    T * allocate ();
-    template <typename T>
-    void free (T * t);
-    uint32_t getNumAllocations () const;
-    uint32_t getFreeBytes () const;
+    PAGE_TYPE_NORMAL,
+    PAGE_TYPE_JUMBO,
+    PAGE_TYPE_UNSET
   };
 }
 namespace stt
 {
-  template <typename T>
-  LZZ_INLINE constexpr uint32_t PageBumpAllocatedStorage::roundedSizeOf ()
-                                                                      { return sizeof(T); }
+  char const * pageTypeEnumToString (pageTypeEnum const pt);
 }
 namespace stt
 {
-  LZZ_INLINE bool PageBumpAllocatedStorage::contains (void * ptr) const
-                                                      {
-			uintptr_t pagei = uintptr_t(page);
-			uintptr_t ptri = uintptr_t(ptr);
-			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
+  struct pageHeader
+  {
+    pageHeader * next;
+    pageHeader * cachedWorkingEnd;
+    uint64_t allocationInfo;
+    uint32_t localSize;
+    uint32_t totalSize;
+    uint64_t useMask;
+    uint64_t (_unused) [3];
+    void initToZero ();
+    void appendList (pageHeader * other);
+    pageHeader * splitList (uint32_t const nPages);
+    static pageHeader * buildList (pageHeader * * pages, uint32_t const nPages);
+    pageHeader * end ();
+    pageHeader * endCounting (int & countOut);
+    pageHeader * endCountingDumping (int & countOut);
+    int listLength ();
+    uint8_t * toPayload ();
+    static pageHeader * fromPayload (uint8_t * ptr);
+  };
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  union pageTemplate
+  {
+    pageHeader ph;
+    uint8_t (_data) [STT_PAGE_SIZE];
+    void initHeader ();
+    constexpr uint8_t * ptr ();
+    constexpr uint8_t const * ptr () const;
+    static constexpr size_t capacity ();
+    static constexpr size_t storageSize ();
+    static constexpr pageTypeEnum getPageType ();
+  };
+}
+namespace stt
+{
+  typedef pageTemplate <STT_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_NORMAL> pageU;
+}
+namespace stt
+{
+  typedef pageTemplate <STT_JUMBO_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_JUMBO> jumboPageU;
+}
+namespace stt
+{
+  LZZ_INLINE void pageHeader::initToZero ()
+                                         {
+			//allocator = NULL;
+			next = NULL;
+			cachedWorkingEnd = NULL;
+			allocationInfo = 0;
+			localSize = 0;
+			totalSize = 0;
+			useMask = 0;
 			}
 }
 namespace stt
 {
-  template <typename T>
-  T * PageBumpAllocatedStorage::allocate ()
-                              {
-			T* r = (T*) &(page->ptr()[page->ph.localSize]);
-			page->ph.localSize += roundedSizeOf<T>();
-			page->ph.totalSize++;
-			new (r) T();
-			return r;
+  LZZ_INLINE uint8_t * pageHeader::toPayload ()
+                                            {
+			uint8_t* ptr = (uint8_t*) this;
+			return &ptr[STT_PAGE_HEADER_SIZE];
 			}
 }
 namespace stt
 {
-  template <typename T>
-  void PageBumpAllocatedStorage::free (T * t)
-                                {
-			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
-				page->ph.localSize -= sizeof(T);
-				}
-			page->ph.totalSize--;
-			t->~T();
+  LZZ_INLINE pageHeader * pageHeader::fromPayload (uint8_t * ptr)
+                                                                    {
+			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
+			return (pageHeader*) &ptr[-STT_PAGE_HEADER_SIZE];
 			}
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  LZZ_INLINE void pageTemplate <SIZE, ET>::initHeader ()
+                                         { ph.initToZero(); ph.allocationInfo = SIZE; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr uint8_t * pageTemplate <SIZE, ET>::ptr ()
+                                                          { return &_data[STT_PAGE_HEADER_SIZE]; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr uint8_t const * pageTemplate <SIZE, ET>::ptr () const
+                                                          { return &_data[STT_PAGE_HEADER_SIZE]; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr size_t pageTemplate <SIZE, ET>::capacity ()
+                                                        { return SIZE - STT_PAGE_HEADER_SIZE;  }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr size_t pageTemplate <SIZE, ET>::storageSize ()
+                                                           { return SIZE;  }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  constexpr pageTypeEnum pageTemplate <SIZE, ET>::getPageType ()
+                                                                 { return ET; }
 }
 #undef LZZ_INLINE
 #endif
@@ -1504,43 +1720,126 @@ namespace stt
 ////////////////////////////////////////////////////////////////////////
 
 #ifdef STT_STL_IMPL
-#ifndef STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
-#define STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
+#ifndef STT_STL_IMPL_DOUBLE_GUARD_page
+#define STT_STL_IMPL_DOUBLE_GUARD_page
 #define LZZ_OVERRIDE
-// page_bump_allocator.cpp
+// page.cpp
 //
 
+
+namespace stt {
+	static_assert(sizeof(pageHeader) <= STT_PAGE_HEADER_SIZE);
+	}
 #define LZZ_INLINE inline
 namespace stt
 {
-  PageBumpAllocatedStorage::PageBumpAllocatedStorage ()
-                                           {
-			page = ThreadSafePageAllocator::allocPage();
-			page->initHeader();
+  char const * pageTypeEnumToString (pageTypeEnum const pt)
+                                                                 {
+		switch (pt) {
+			case pageTypeEnum::PAGE_TYPE_NORMAL: return "Normal";
+			case pageTypeEnum::PAGE_TYPE_JUMBO: return "Jumbo";
+			default: return "Unset";
+			}
+		}
+}
+namespace stt
+{
+  void pageHeader::appendList (pageHeader * other)
+                                                   {
+			// appends other to this list
+			// assumes cachedWorkingEnd is a valid value for both this and othe
+			// assumes other is not null
+			cachedWorkingEnd->next = other;
+			cachedWorkingEnd = other->cachedWorkingEnd;
 			}
 }
 namespace stt
 {
-  PageBumpAllocatedStorage::~ PageBumpAllocatedStorage ()
-                                            {
-			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
-			ThreadSafePageAllocator::freePage(page);
-			page = NULL;
+  pageHeader * pageHeader::splitList (uint32_t const nPages)
+                                                             {
+			// assumes cachedWorkingEnd is a valid value for this
+			// if this is too short then returns NULL
+			pageHeader* w = this;
+			uint32_t cnt = 1;
+			while (w->next && (cnt < nPages)) {
+				cnt++;
+				w = w->next;
+				}
+			// w should now be the end of this list
+			// and w->next should be the start of next
+			if (!w) return NULL; // fail split
+			if (!w->next) return NULL; // fail split
+			
+			pageHeader* r = w->next;
+			r->cachedWorkingEnd = cachedWorkingEnd;
+			w->next = NULL;
+			cachedWorkingEnd = w;
+			return r;
 			}
 }
 namespace stt
 {
-  uint32_t PageBumpAllocatedStorage::getNumAllocations () const
-                                                   { return page->ph.totalSize; }
+  pageHeader * pageHeader::buildList (pageHeader * * pages, uint32_t const nPages)
+                                                                                        {
+			// assembles pages into a linked list, returns the head
+			if (!nPages) return NULL;
+			for (uint32_t i = 0; i < nPages-1; ++i) {
+				pages[i]->next = pages[i+1];
+				}
+			pages[nPages-1]->next = NULL;
+			pages[0]->cachedWorkingEnd = pages[nPages-1];
+			return pages[0];
+			}
 }
 namespace stt
 {
-  uint32_t PageBumpAllocatedStorage::getFreeBytes () const
-                                              { return page->capacity() - page->ph.localSize; }
+  pageHeader * pageHeader::end ()
+                                  {
+			// manually traverses to the end
+			pageHeader* w = this;
+			while (w->next) { w = w->next; }
+			return w;
+			}
+}
+namespace stt
+{
+  pageHeader * pageHeader::endCounting (int & countOut)
+                                                       {
+			// manually traverses to the end, counts number of pages
+			pageHeader* w = this;
+			countOut++;
+			while (w->next) { w = w->next; countOut++; }
+			return w;
+			}
+}
+namespace stt
+{
+  pageHeader * pageHeader::endCountingDumping (int & countOut)
+                                                              {
+			pageHeader* w = this;
+			countOut++;
+			while (w->next) {
+				w = w->next;
+				#ifdef STT_STL_DEBUG
+				stt_dbg_log("\t\tendCountingDumping %p %i deep is %p\n", this, countOut, w);
+				#endif
+				countOut++; 
+				}
+			return w;
+			}
+}
+namespace stt
+{
+  int pageHeader::listLength ()
+                                 {
+			int cnt = 0;
+			endCounting(cnt);
+			return cnt;
+			}
 }
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
-#endif //STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
+#endif //STT_STL_IMPL_DOUBLE_GUARD_page
 #endif //STT_STL_IMPL_IMPL
 // This file is autogenerated. See look at the .lzz files in the src/ directory for a more human-friendly version
 #ifndef LZZ_OVERRIDE
@@ -1560,7 +1859,6 @@ namespace stt {
 	}
 
 #define STT_PAGEQUEUE_MVSEM pageQueueImpl&&
-#define STT_PAGEQUEUEBUMPSTORAGE_MVSEM pageQueueBumpStorage&&
 #define LZZ_INLINE inline
 namespace stt
 {
@@ -1608,43 +1906,11 @@ namespace stt
     void swap (pageQueueImpl & other);
     void concatenate (STT_PAGEQUEUE_MVSEM other);
     void reserve (uint32_t const sz);
-    void push_back (T const & t);
-    void push_back (T&& t);
+    T * push_back (T const & t);
+    T * push_back (T&& t);
     iterator iter_at (uint32_t const idx);
     iterator begin ();
     iterator end ();
-  };
-}
-namespace stt
-{
-  template <typename P>
-  struct pageQueueBumpStorage
-  {
-    pageQueueImpl <char,P> store;
-    typedef uint16_t writeSizeType;
-    pageQueueBumpStorage ();
-    ~ pageQueueBumpStorage ();
-    pageQueueBumpStorage (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other);
-    pageQueueBumpStorage <P> & operator = (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other);
-  private:
-    pageQueueBumpStorage (pageQueueBumpStorage const & other);
-    pageQueueBumpStorage & operator = (pageQueueBumpStorage const & other);
-  public:
-    stt::string_view push_back (stt::string_view const & sv);
-    stt::string_view push_back (char const * str, uint32_t const size);
-    struct pushBackLookupHint
-    {
-      P * page;
-      uint32_t avaliableSize;
-      pushBackLookupHint ();
-    };
-    stt::string_view push_back_compact (stt::string_view const & sv, pushBackLookupHint * hint = NULL);
-    stt::string_view push_back_compact (char const * str, uint32_t const size, pushBackLookupHint * hint = NULL);
-    void swap (pageQueueBumpStorage & other);
-    void clear ();
-    void clearKeepingFirstPage ();
-    uint32_t remainingBytesIn (P * t) const;
-    stt::string_view writeBufferRaw (P * page, char const * str, writeSizeType const size);
   };
 }
 namespace stt
@@ -1955,24 +2221,26 @@ namespace stt
 namespace stt
 {
   template <typename T, typename P>
-  LZZ_INLINE void pageQueueImpl <T, P>::push_back (T const & t)
-                                                  {
+  LZZ_INLINE T * pageQueueImpl <T, P>::push_back (T const & t)
+                                                {
 			extendTailIfRequired();
-			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(t);
+			T* r = new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(t);
 			tail->ph.localSize++;
 			head->ph.totalSize++;
+			return r;
 			}
 }
 namespace stt
 {
   template <typename T, typename P>
-  LZZ_INLINE void pageQueueImpl <T, P>::push_back (T&& t)
-                                                  {
+  LZZ_INLINE T * pageQueueImpl <T, P>::push_back (T&& t)
+                                                {
 			//stt_dbg_log("move semantics!\n");
 			extendTailIfRequired();
-			new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(std::move(t));
+			T* r = new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(std::move(t));
 			tail->ph.localSize++;
 			head->ph.totalSize++;
+			return r;
 			}
 }
 namespace stt
@@ -2016,50 +2284,197 @@ namespace stt
 			return  it;
 			}
 }
+#undef LZZ_INLINE
+#endif
+#undef LZZ_OVERRIDE
+
+////////////////////////////////////////////////////////////////////////
+
+#ifdef STT_STL_IMPL
+#ifndef STT_STL_IMPL_DOUBLE_GUARD_page_queue
+#define STT_STL_IMPL_DOUBLE_GUARD_page_queue
+#define LZZ_OVERRIDE
+// page_queue.cpp
+//
+
+#define LZZ_INLINE inline
+#undef LZZ_INLINE
+#undef LZZ_OVERRIDE
+#endif //STT_STL_IMPL_DOUBLE_GUARD_page_queue
+#endif //STT_STL_IMPL_IMPL
+// This file is autogenerated. See look at the .lzz files in the src/ directory for a more human-friendly version
+#ifndef LZZ_OVERRIDE
+	#define LZZ_OVERRIDE override
+#endif
+// page_queue_bump_storage.hh
+//
+
+#ifndef LZZ_page_queue_bump_storage_hh
+#define LZZ_page_queue_bump_storage_hh
+#define STT_PAGEQUEUEBUMPSTORAGE_MVSEM pageQueueBumpStorage&&
+#define LZZ_INLINE inline
+namespace stt
+{
+  struct pageQueueBumpStorageOverflowCtr
+  {
+    pageQueue <string24> overflowStore;
+    string_view push_back (char const * str, uint32_t const sz);
+    void swap (pageQueueBumpStorageOverflowCtr & other);
+    void clear ();
+  };
+}
+namespace stt
+{
+  template <typename P>
+  struct pageQueueBumpStorage
+  {
+    pageQueueImpl <char,P> store;
+    pageQueueBumpStorageOverflowCtr * overflow;
+    uint8_t overflowMode;
+    static uint8_t const OVERFLOW_MODE_ABORT;
+    static uint8_t const OVERFLOW_MODE_TRUNCATE;
+    typedef uint16_t writeSizeType;
+    pageQueueBumpStorage ();
+    ~ pageQueueBumpStorage ();
+    void move_impl (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other);
+    pageQueueBumpStorage (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other);
+    pageQueueBumpStorage <P> & operator = (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other);
+  private:
+    pageQueueBumpStorage (pageQueueBumpStorage const & other);
+    pageQueueBumpStorage & operator = (pageQueueBumpStorage const & other);
+  public:
+    void swapOverflow (pageQueueBumpStorageOverflowCtr * otherOverlow);
+    template <typename T>
+    T * serialise (T const & t);
+    string_view push_back (string_view const & sv);
+    string_view checkOverflow (char const * str, uint32_t const size, uint32_t const wantsSize);
+    string_view push_back (char const * str, uint32_t const size);
+    struct pushBackLookupHint
+    {
+      P * page;
+      uint32_t avaliableSize;
+      pushBackLookupHint ();
+      void reset ();
+    };
+    string_view push_back_compact (string_view const & sv, pushBackLookupHint * hint = NULL);
+    string_view push_back_compact (char const * str, uint32_t const size, pushBackLookupHint * hint = NULL);
+    void swap (pageQueueBumpStorage & other);
+    void clear ();
+    void clearKeepingFirstPage ();
+    uint32_t remainingBytesIn (P * t) const;
+    stt::string_view writeBufferRaw (P * page, char const * str, writeSizeType const size);
+  };
+}
+namespace stt
+{
+  template <typename P>
+  uint8_t const pageQueueBumpStorage <P>::OVERFLOW_MODE_ABORT = 0;
+}
+namespace stt
+{
+  template <typename P>
+  uint8_t const pageQueueBumpStorage <P>::OVERFLOW_MODE_TRUNCATE = 1;
+}
 namespace stt
 {
   template <typename P>
   pageQueueBumpStorage <P>::pageQueueBumpStorage ()
-                                       {}
+                                       { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
 }
 namespace stt
 {
   template <typename P>
   pageQueueBumpStorage <P>::~ pageQueueBumpStorage ()
-                                        {}
+                                        { if (overflow) overflow->clear(); }
 }
 namespace stt
 {
   template <typename P>
-  LZZ_INLINE pageQueueBumpStorage <P>::pageQueueBumpStorage (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other)
-                                                                                  { store.move_impl(std::move(store.other)); }
-}
-namespace stt
-{
-  template <typename P>
-  LZZ_INLINE pageQueueBumpStorage <P> & pageQueueBumpStorage <P>::operator = (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other)
-                                                                                                 { clear(); store.move_impl(std::move(store.other)); return *this; }
-}
-namespace stt
-{
-  template <typename P>
-  LZZ_INLINE stt::string_view pageQueueBumpStorage <P>::push_back (stt::string_view const & sv)
-                                                                              {
-			return push_back_compact(sv.data(), sv.size());
+  void pageQueueBumpStorage <P>::move_impl (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other)
+                                                                     {
+			store.move_impl(std::move(store.other));
+			swapOverflow(other.overflow);
+			overflowMode = other.overflowMode;
 			}
 }
 namespace stt
 {
   template <typename P>
-  stt::string_view pageQueueBumpStorage <P>::push_back (char const * str, uint32_t const size)
-                                                                                 {
+  LZZ_INLINE pageQueueBumpStorage <P>::pageQueueBumpStorage (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other)
+                                                                                  { move_impl(other); }
+}
+namespace stt
+{
+  template <typename P>
+  LZZ_INLINE pageQueueBumpStorage <P> & pageQueueBumpStorage <P>::operator = (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other)
+                                                                                                 { move_impl(other); return *this; }
+}
+namespace stt
+{
+  template <typename P>
+  void pageQueueBumpStorage <P>::swapOverflow (pageQueueBumpStorageOverflowCtr * otherOverlow)
+                                                                                  {
+			if ((!overflow) && (!otherOverlow)) return;
+			if (overflow && otherOverlow) {
+				overflow->swap(*otherOverlow);
+				return;
+				}
+			STT_STL_ASSERT(false, "overflow storage is assigned for one container but not the other");
+			}
+}
+namespace stt
+{
+  template <typename P>
+  template <typename T>
+  T * pageQueueBumpStorage <P>::serialise (T const & t)
+                                          {
+			// writes arbitary object data to this
+			// note that if (OVERFLOW_MODE_TRUNCATE) then T might be truncated!
+			static_assert(stt::is_pod<T>::value);
+			stt::string_view r = push_back((const char*) &t, sizeof(T));
+			return (T*) r.data();
+			}
+}
+namespace stt
+{
+  template <typename P>
+  LZZ_INLINE string_view pageQueueBumpStorage <P>::push_back (string_view const & sv)
+                                                                    {
+			return push_back(sv.data(), sv.size());
+			}
+}
+namespace stt
+{
+  template <typename P>
+  string_view pageQueueBumpStorage <P>::checkOverflow (char const * str, uint32_t const size, uint32_t const wantsSize)
+                                                                                                          {
+			// Is this string too big to fit on a page? If so then throw it into a string object
+			constexpr uint32_t maxSize = ((writeSizeType(-1) > store.pageLocalCapacity()) ? writeSizeType(-1) : store.pageLocalCapacity()) - sizeof(writeSizeType);
+			if (wantsSize > maxSize) {
+				if (overflow) {
+					return overflow->push_back(str, size);
+					}
+				else {
+					if (overflowMode == OVERFLOW_MODE_ABORT)
+						stt::error::array_out_of_bounds(wantsSize, maxSize);
+					if (overflowMode == OVERFLOW_MODE_TRUNCATE)
+						return push_back(str, maxSize);
+					}
+				}
+			return string_view(NULL,0);
+			}
+}
+namespace stt
+{
+  template <typename P>
+  string_view pageQueueBumpStorage <P>::push_back (char const * str, uint32_t const size)
+                                                                            {
 			// Fast - tacks on the string at the end
 			if (!size) return stt::string_view(NULL, 0);
 			const uint32_t wantsSize = size + sizeof(writeSizeType);
-			if (wantsSize > writeSizeType(-1))
-				stt::error::array_out_of_bounds(size, writeSizeType(-1));
-			if (wantsSize > store.pageLocalCapacity())
-				stt::error::array_out_of_bounds(wantsSize, store.pageLocalCapacity());
+
+			string_view r = checkOverflow(str, size, wantsSize);
+			if (r.data()) return r;
 			
 			store.extendTailIfRequired();
 			if (remainingBytesIn(store.tail) < wantsSize)
@@ -2071,22 +2486,27 @@ namespace stt
 {
   template <typename P>
   LZZ_INLINE pageQueueBumpStorage <P>::pushBackLookupHint::pushBackLookupHint ()
-    : page (NULL), avaliableSize (0)
-                                                                                   {}
+                                                    { reset(); }
 }
 namespace stt
 {
   template <typename P>
-  LZZ_INLINE stt::string_view pageQueueBumpStorage <P>::push_back_compact (stt::string_view const & sv, pushBackLookupHint * hint)
-                                                                                                                       {
+  LZZ_INLINE void pageQueueBumpStorage <P>::pushBackLookupHint::reset ()
+                                            { page = NULL; avaliableSize = 0; }
+}
+namespace stt
+{
+  template <typename P>
+  LZZ_INLINE string_view pageQueueBumpStorage <P>::push_back_compact (string_view const & sv, pushBackLookupHint * hint)
+                                                                                                             {
 			return push_back_compact(sv.data(), sv.size());
 			}
 }
 namespace stt
 {
   template <typename P>
-  stt::string_view pageQueueBumpStorage <P>::push_back_compact (char const * str, uint32_t const size, pushBackLookupHint * hint)
-                                                                                                                          {
+  string_view pageQueueBumpStorage <P>::push_back_compact (char const * str, uint32_t const size, pushBackLookupHint * hint)
+                                                                                                                     {
 			// Slow - itterates through list to find first page that'll fit this string and puts there
 			// usage: 1. `push_back_compact(str, size);` or
 			//        2. `pushBackLookupHint hint; for (each_string) { push_back_compact(str, size, &hint); }`
@@ -2094,8 +2514,9 @@ namespace stt
 			// big alloc causes a large gap in the middle of the list that can be filled with small 
 			if (!size) return stt::string_view(NULL, 0);
 			const uint32_t wantsSize = size + sizeof(writeSizeType);
-			if (wantsSize > store.pageLocalCapacity())
-				stt::error::array_out_of_bounds(wantsSize, store.pageLocalCapacity());
+			
+			string_view r = checkOverflow(str, size, wantsSize);
+			if (r.data()) return r;
 			
 			P* page = hint ? hint->page : store.head;
 			
@@ -2127,19 +2548,19 @@ namespace stt
 {
   template <typename P>
   LZZ_INLINE void pageQueueBumpStorage <P>::swap (pageQueueBumpStorage & other)
-                                                              { store.swap(other); }
+                                                              { store.swap(other); swapOverflow(other.overflow); }
 }
 namespace stt
 {
   template <typename P>
   LZZ_INLINE void pageQueueBumpStorage <P>::clear ()
-                                    { store.clear(); }
+                                    { store.clear(); if (overflow) overflow->clear(); }
 }
 namespace stt
 {
   template <typename P>
   LZZ_INLINE void pageQueueBumpStorage <P>::clearKeepingFirstPage ()
-                                                    { store.clearKeepingFirstPage(); }
+                                                    { store.clearKeepingFirstPage(); if (overflow) overflow->clear(); }
 }
 namespace stt
 {
@@ -2169,161 +2590,102 @@ namespace stt
 ////////////////////////////////////////////////////////////////////////
 
 #ifdef STT_STL_IMPL
-#ifndef STT_STL_IMPL_DOUBLE_GUARD_page_queue
-#define STT_STL_IMPL_DOUBLE_GUARD_page_queue
+#ifndef STT_STL_IMPL_DOUBLE_GUARD_page_queue_bump_storage
+#define STT_STL_IMPL_DOUBLE_GUARD_page_queue_bump_storage
 #define LZZ_OVERRIDE
-// page_queue.cpp
+// page_queue_bump_storage.cpp
 //
 
 #define LZZ_INLINE inline
+namespace stt
+{
+  string_view pageQueueBumpStorageOverflowCtr::push_back (char const * str, uint32_t const sz)
+                                                                           {
+			string24* r = overflowStore.push_back(string24(str, sz));
+			return r->to_string_view();
+			}
+}
+namespace stt
+{
+  void pageQueueBumpStorageOverflowCtr::swap (pageQueueBumpStorageOverflowCtr & other)
+                                                                   { overflowStore.swap(other.overflowStore); }
+}
+namespace stt
+{
+  void pageQueueBumpStorageOverflowCtr::clear ()
+                             { overflowStore.clear(); }
+}
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
-#endif //STT_STL_IMPL_DOUBLE_GUARD_page_queue
+#endif //STT_STL_IMPL_DOUBLE_GUARD_page_queue_bump_storage
 #endif //STT_STL_IMPL_IMPL
 // This file is autogenerated. See look at the .lzz files in the src/ directory for a more human-friendly version
 #ifndef LZZ_OVERRIDE
 	#define LZZ_OVERRIDE override
 #endif
-// page.hh
+// page_bump_allocator.hh
 //
 
-#ifndef LZZ_page_hh
-#define LZZ_page_hh
-#ifndef STT_PAGE_HEADER_SIZE
-	#define STT_PAGE_HEADER_SIZE 64
-#endif
-#ifndef STT_PAGE_SIZE
-	#define STT_PAGE_SIZE 4080	// this makes alignement better 
-#endif
-#ifndef STT_JUMBO_PAGE_SIZE
-	#define STT_JUMBO_PAGE_SIZE 65520
-#endif
-
-	
+#ifndef LZZ_page_bump_allocator_hh
+#define LZZ_page_bump_allocator_hh
 #define LZZ_INLINE inline
 namespace stt
 {
-  enum pageTypeEnum
+  class PageBumpAllocatedStorage
   {
-    PAGE_TYPE_NORMAL,
-    PAGE_TYPE_JUMBO,
-    PAGE_TYPE_UNSET
+  public:
+    pageU * page;
+    PageBumpAllocatedStorage ();
+    ~ PageBumpAllocatedStorage ();
+    template <typename T>
+    static constexpr uint32_t roundedSizeOf ();
+    bool contains (void * ptr) const;
+    template <typename T>
+    T * allocate ();
+    template <typename T>
+    void free (T * t);
+    uint32_t getNumAllocations () const;
+    uint32_t getFreeBytes () const;
   };
 }
 namespace stt
 {
-  char const * pageTypeEnumToString (pageTypeEnum const pt);
+  template <typename T>
+  LZZ_INLINE constexpr uint32_t PageBumpAllocatedStorage::roundedSizeOf ()
+                                                                      { return sizeof(T); }
 }
 namespace stt
 {
-  struct pageHeader
-  {
-    pageHeader * next;
-    pageHeader * cachedWorkingEnd;
-    uint64_t allocationInfo;
-    uint32_t localSize;
-    uint32_t totalSize;
-    uint64_t useMask;
-    uint64_t (_unused) [3];
-    void initToZero ();
-    void appendList (pageHeader * other);
-    pageHeader * splitList (uint32_t const nPages);
-    static pageHeader * buildList (pageHeader * * pages, uint32_t const nPages);
-    pageHeader * end ();
-    pageHeader * endCounting (int & countOut);
-    pageHeader * endCountingDumping (int & countOut);
-    int listLength ();
-    uint8_t * toPayload ();
-    static pageHeader * fromPayload (uint8_t * ptr);
-  };
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  union pageTemplate
-  {
-    pageHeader ph;
-    uint8_t (_data) [STT_PAGE_SIZE];
-    void initHeader ();
-    constexpr uint8_t * ptr ();
-    constexpr uint8_t const * ptr () const;
-    static constexpr size_t capacity ();
-    static constexpr size_t storageSize ();
-    static constexpr pageTypeEnum getPageType ();
-  };
-}
-namespace stt
-{
-  typedef pageTemplate <STT_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_NORMAL> pageU;
-}
-namespace stt
-{
-  typedef pageTemplate <STT_JUMBO_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_JUMBO> jumboPageU;
-}
-namespace stt
-{
-  LZZ_INLINE void pageHeader::initToZero ()
-                                         {
-			//allocator = NULL;
-			next = NULL;
-			cachedWorkingEnd = NULL;
-			allocationInfo = 0;
-			localSize = 0;
-			totalSize = 0;
-			useMask = 0;
+  LZZ_INLINE bool PageBumpAllocatedStorage::contains (void * ptr) const
+                                                      {
+			uintptr_t pagei = uintptr_t(page);
+			uintptr_t ptri = uintptr_t(ptr);
+			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
 			}
 }
 namespace stt
 {
-  LZZ_INLINE uint8_t * pageHeader::toPayload ()
-                                            {
-			uint8_t* ptr = (uint8_t*) this;
-			return &ptr[STT_PAGE_HEADER_SIZE];
+  template <typename T>
+  T * PageBumpAllocatedStorage::allocate ()
+                              {
+			T* r = (T*) &(page->ptr()[page->ph.localSize]);
+			page->ph.localSize += roundedSizeOf<T>();
+			page->ph.totalSize++;
+			new (r) T();
+			return r;
 			}
 }
 namespace stt
 {
-  LZZ_INLINE pageHeader * pageHeader::fromPayload (uint8_t * ptr)
-                                                                    {
-			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
-			return (pageHeader*) &ptr[-STT_PAGE_HEADER_SIZE];
+  template <typename T>
+  void PageBumpAllocatedStorage::free (T * t)
+                                {
+			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
+				page->ph.localSize -= sizeof(T);
+				}
+			page->ph.totalSize--;
+			t->~T();
 			}
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  LZZ_INLINE void pageTemplate <SIZE, ET>::initHeader ()
-                                         { ph.initToZero(); ph.allocationInfo = SIZE; }
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr uint8_t * pageTemplate <SIZE, ET>::ptr ()
-                                                          { return &_data[STT_PAGE_HEADER_SIZE]; }
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr uint8_t const * pageTemplate <SIZE, ET>::ptr () const
-                                                          { return &_data[STT_PAGE_HEADER_SIZE]; }
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr size_t pageTemplate <SIZE, ET>::capacity ()
-                                                        { return SIZE - STT_PAGE_HEADER_SIZE;  }
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr size_t pageTemplate <SIZE, ET>::storageSize ()
-                                                           { return SIZE;  }
-}
-namespace stt
-{
-  template <unsigned int SIZE, pageTypeEnum ET>
-  constexpr pageTypeEnum pageTemplate <SIZE, ET>::getPageType ()
-                                                                 { return ET; }
 }
 #undef LZZ_INLINE
 #endif
@@ -2332,124 +2694,41 @@ namespace stt
 ////////////////////////////////////////////////////////////////////////
 
 #ifdef STT_STL_IMPL
-#ifndef STT_STL_IMPL_DOUBLE_GUARD_page
-#define STT_STL_IMPL_DOUBLE_GUARD_page
+#ifndef STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
+#define STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
 #define LZZ_OVERRIDE
-// page.cpp
+// page_bump_allocator.cpp
 //
 
-
-namespace stt {
-	static_assert(sizeof(pageHeader) <= STT_PAGE_HEADER_SIZE);
-	}
 #define LZZ_INLINE inline
 namespace stt
 {
-  char const * pageTypeEnumToString (pageTypeEnum const pt)
-                                                                 {
-		switch (pt) {
-			case pageTypeEnum::PAGE_TYPE_NORMAL: return "Normal";
-			case pageTypeEnum::PAGE_TYPE_JUMBO: return "Jumbo";
-			default: return "Unset";
-			}
-		}
-}
-namespace stt
-{
-  void pageHeader::appendList (pageHeader * other)
-                                                   {
-			// appends other to this list
-			// assumes cachedWorkingEnd is a valid value for both this and othe
-			// assumes other is not null
-			cachedWorkingEnd->next = other;
-			cachedWorkingEnd = other->cachedWorkingEnd;
+  PageBumpAllocatedStorage::PageBumpAllocatedStorage ()
+                                           {
+			page = ThreadSafePageAllocator::allocPage();
+			page->initHeader();
 			}
 }
 namespace stt
 {
-  pageHeader * pageHeader::splitList (uint32_t const nPages)
-                                                             {
-			// assumes cachedWorkingEnd is a valid value for this
-			// if this is too short then returns NULL
-			pageHeader* w = this;
-			uint32_t cnt = 1;
-			while (w->next && (cnt < nPages)) {
-				cnt++;
-				w = w->next;
-				}
-			// w should now be the end of this list
-			// and w->next should be the start of next
-			if (!w) return NULL; // fail split
-			if (!w->next) return NULL; // fail split
-			
-			pageHeader* r = w->next;
-			r->cachedWorkingEnd = cachedWorkingEnd;
-			w->next = NULL;
-			cachedWorkingEnd = w;
-			return r;
+  PageBumpAllocatedStorage::~ PageBumpAllocatedStorage ()
+                                            {
+			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
+			ThreadSafePageAllocator::freePage(page);
+			page = NULL;
 			}
 }
 namespace stt
 {
-  pageHeader * pageHeader::buildList (pageHeader * * pages, uint32_t const nPages)
-                                                                                        {
-			// assembles pages into a linked list, returns the head
-			if (!nPages) return NULL;
-			for (uint32_t i = 0; i < nPages-1; ++i) {
-				pages[i]->next = pages[i+1];
-				}
-			pages[nPages-1]->next = NULL;
-			pages[0]->cachedWorkingEnd = pages[nPages-1];
-			return pages[0];
-			}
+  uint32_t PageBumpAllocatedStorage::getNumAllocations () const
+                                                   { return page->ph.totalSize; }
 }
 namespace stt
 {
-  pageHeader * pageHeader::end ()
-                                  {
-			// manually traverses to the end
-			pageHeader* w = this;
-			while (w->next) { w = w->next; }
-			return w;
-			}
-}
-namespace stt
-{
-  pageHeader * pageHeader::endCounting (int & countOut)
-                                                       {
-			// manually traverses to the end, counts number of pages
-			pageHeader* w = this;
-			countOut++;
-			while (w->next) { w = w->next; countOut++; }
-			return w;
-			}
-}
-namespace stt
-{
-  pageHeader * pageHeader::endCountingDumping (int & countOut)
-                                                              {
-			pageHeader* w = this;
-			countOut++;
-			while (w->next) {
-				w = w->next;
-				#ifdef STT_STL_DEBUG
-				stt_dbg_log("\t\tendCountingDumping %p %i deep is %p\n", this, countOut, w);
-				#endif
-				countOut++; 
-				}
-			return w;
-			}
-}
-namespace stt
-{
-  int pageHeader::listLength ()
-                                 {
-			int cnt = 0;
-			endCounting(cnt);
-			return cnt;
-			}
+  uint32_t PageBumpAllocatedStorage::getFreeBytes () const
+                                              { return page->capacity() - page->ph.localSize; }
 }
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
-#endif //STT_STL_IMPL_DOUBLE_GUARD_page
+#endif //STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
 #endif //STT_STL_IMPL_IMPL
