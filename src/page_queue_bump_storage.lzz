@@ -1,0 +1,181 @@
+#define STT_STT_NOCOPY(X) \
+private:								\
+	X(const X& other);					\
+	X& operator =(const X & other);		\
+public:	
+
+#hdr
+#define STT_PAGEQUEUEBUMPSTORAGE_MVSEM pageQueueBumpStorage&&
+#end
+
+#src
+#end
+
+namespace stt {
+	struct pageQueueBumpStorageOverflowCtr {
+		// Purpose: for when you put strings that are too big to fit into P
+		// into a pageQueueBumpStorage<P>.
+		// Note: if you never push_back() then by default pageQueue<..> will never allocate
+		pageQueue<string24> overflowStore; // strings that are too big
+		string_view push_back(const char * str, const uint32_t sz) {
+			string24* r = overflowStore.push_back(string24(str, sz));
+			return r->to_string_view();
+			}
+		void swap(pageQueueBumpStorageOverflowCtr & other) { overflowStore.swap(other.overflowStore); }
+		void clear() { overflowStore.clear(); }
+		};
+		
+	template<typename P>
+	struct pageQueueBumpStorage {
+		// Purpose: storage for interned strings (or arbitary pod). Each string must be smaller than a page in size
+		// This is one-way storage - each push_back returns a string_view and each store cannot be resized or moved.
+		// You must track these string_views yourself
+		// You cannot erase, just purge the entire list with (clear())
+		// empty strings are not stored, an empty string_view is returned if you push_back
+		// 
+		// Usage (with overflow):
+		// 
+		//
+		pageQueueImpl<char,P> store;
+		pageQueueBumpStorageOverflowCtr* overflow; // (optional) storage for strings that are too big to fit in a page
+		uint8_t overflowMode; // how to handle overflows if overflow is null
+		
+		static const uint8_t OVERFLOW_MODE_ABORT = 0;
+		static const uint8_t OVERFLOW_MODE_TRUNCATE = 1;
+		
+		typedef uint16_t writeSizeType; // writeSizeType(-1) is the maximum element size
+		
+		pageQueueBumpStorage() { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
+		~pageQueueBumpStorage() { if (overflow) overflow->clear(); }
+		
+		void move_impl(STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) {
+			store.move_impl(std::move(store.other));
+			swapOverflow(other.overflow);
+			overflowMode = other.overflowMode;
+			}
+		
+		// pageQueues cannot be copied, only moved
+		// move assign and move construct are needed for std::swap auto implementation
+		inline pageQueueBumpStorage(STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) { move_impl(other); }
+		inline pageQueueBumpStorage<P>& operator= (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) { move_impl(other); return *this; }
+		STT_STT_NOCOPY(pageQueueBumpStorage)
+		
+		
+		void swapOverflow(pageQueueBumpStorageOverflowCtr * otherOverlow) {
+			if ((!overflow) && (!otherOverlow)) return;
+			if (overflow && otherOverlow) {
+				overflow->swap(*otherOverlow);
+				return;
+				}
+			STT_STL_ASSERT(false, "overflow storage is assigned for one container but not the other");
+			}
+		
+		template <typename T>
+		T* serialise(const T & t) {
+			// writes arbitary object data to this
+			// note that if (OVERFLOW_MODE_TRUNCATE) then T might be truncated!
+			static_assert(stt::is_pod<T>::value);
+			stt::string_view r = push_back((const char*) &t, sizeof(T));
+			return (T*) r.data();
+			}
+		
+		inline string_view push_back(const string_view& sv) {
+			return push_back(sv.data(), sv.size());
+			}
+		
+		string_view checkOverflow(const char* str, const uint32_t size, const uint32_t wantsSize) {
+			// Is this string too big to fit on a page? If so then throw it into a string object
+			constexpr uint32_t maxSize = ((writeSizeType(-1) > store.pageLocalCapacity()) ? writeSizeType(-1) : store.pageLocalCapacity()) - sizeof(writeSizeType);
+			if (wantsSize > maxSize) {
+				if (overflow) {
+					return overflow->push_back(str, size);
+					}
+				else {
+					if (overflowMode == OVERFLOW_MODE_ABORT)
+						stt::error::array_out_of_bounds(wantsSize, maxSize);
+					if (overflowMode == OVERFLOW_MODE_TRUNCATE)
+						return push_back(str, maxSize);
+					}
+				}
+			return string_view(NULL,0);
+			}
+			
+		string_view push_back(const char* str, const uint32_t size) {
+			// Fast - tacks on the string at the end
+			if (!size) return stt::string_view(NULL, 0);
+			const uint32_t wantsSize = size + sizeof(writeSizeType);
+
+			string_view r = checkOverflow(str, size, wantsSize);
+			if (r.data()) return r;
+			
+			store.extendTailIfRequired();
+			if (remainingBytesIn(store.tail) < wantsSize)
+				store.extendTail();
+			return writeBufferRaw(store.tail, str, size);
+			}
+			
+		struct pushBackLookupHint { 
+			P* page;
+			uint32_t avaliableSize;
+			inline pushBackLookupHint() { reset(); }
+			inline void reset() { page = NULL; avaliableSize = 0; }
+			};
+		
+		inline string_view push_back_compact(const string_view& sv, pushBackLookupHint* hint = NULL) {
+			return push_back_compact(sv.data(), sv.size());
+			}
+		string_view push_back_compact(const char* str, const uint32_t size, pushBackLookupHint* hint = NULL) {
+			// Slow - itterates through list to find first page that'll fit this string and puts there
+			// usage: 1. `push_back_compact(str, size);` or
+			//        2. `pushBackLookupHint hint; for (each_string) { push_back_compact(str, size, &hint); }`
+			// if hint is non-null then start searching from (*hint). This optimises for the case in a loop where a
+			// big alloc causes a large gap in the middle of the list that can be filled with small 
+			if (!size) return stt::string_view(NULL, 0);
+			const uint32_t wantsSize = size + sizeof(writeSizeType);
+			
+			string_view r = checkOverflow(str, size, wantsSize);
+			if (r.data()) return r;
+			
+			P* page = hint ? hint->page : store.head;
+			
+			while (page) {
+				uint32_t remainingBytes = remainingBytesIn(page);
+				if (hint) {
+					// update biggest free-space page if avaliable
+					if (remainingBytes > hint->avaliableSize) {
+						hint->page = page;
+						hint->avaliableSize = remainingBytes;
+						}
+					}
+				if (remainingBytes >= wantsSize) {
+					if (hint->page == page)
+						hint->avaliableSize -= wantsSize;
+					return writeBufferRaw(page, str, size);
+					}
+				page = (P*) page->ph.next;
+				}
+			if (hint) {
+				hint->page = NULL; // nothing fit so lookup again next insert
+				hint->avaliableSize = 0;
+				}
+			// fallback to tail push_back
+			return push_back(str, size);
+			}
+		
+		inline void swap(pageQueueBumpStorage& other) { store.swap(other); swapOverflow(other.overflow); }
+		inline void clear() { store.clear(); if (overflow) overflow->clear(); }
+		inline void clearKeepingFirstPage() { store.clearKeepingFirstPage(); if (overflow) overflow->clear(); }
+		inline uint32_t remainingBytesIn(P* t) const { return store.pageLocalCapacity() - t->ph.localSize; }
+			
+		stt::string_view writeBufferRaw(P* page, const char * str, const writeSizeType size) {
+			char* ptr = store.pagePtr(page);
+			*((writeSizeType*) ptr) = size;
+			ptr += sizeof(writeSizeType);
+			stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
+			
+			page->ph.localSize += size + sizeof(writeSizeType);
+			
+			return stt::string_view(ptr, size);
+			}
+		};
+	}
