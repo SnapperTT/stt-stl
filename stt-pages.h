@@ -2499,7 +2499,7 @@ namespace stt
   template <typename P>
   LZZ_INLINE string_view pageQueueBumpStorage <P>::push_back_compact (string_view const & sv, pushBackLookupHint * hint)
                                                                                                              {
-			return push_back_compact(sv.data(), sv.size());
+			return push_back_compact(sv.data(), sv.size(), hint);
 			}
 }
 namespace stt
@@ -2573,7 +2573,7 @@ namespace stt
   template <typename P>
   stt::string_view pageQueueBumpStorage <P>::writeBufferRaw (P * page, char const * str, writeSizeType const size)
                                                                                                      {
-			char* ptr = store.pagePtr(page);
+			char* ptr = &store.pagePtr(page)[page->ph.localSize];
 			*((writeSizeType*) ptr) = size;
 			ptr += sizeof(writeSizeType);
 			stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);

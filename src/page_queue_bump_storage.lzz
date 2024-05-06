@@ -122,7 +122,7 @@ namespace stt {
 			};
 		
 		inline string_view push_back_compact(const string_view& sv, pushBackLookupHint* hint = NULL) {
-			return push_back_compact(sv.data(), sv.size());
+			return push_back_compact(sv.data(), sv.size(), hint);
 			}
 		string_view push_back_compact(const char* str, const uint32_t size, pushBackLookupHint* hint = NULL) {
 			// Slow - itterates through list to find first page that'll fit this string and puts there
@@ -168,7 +168,7 @@ namespace stt {
 		inline uint32_t remainingBytesIn(P* t) const { return store.pageLocalCapacity() - t->ph.localSize; }
 			
 		stt::string_view writeBufferRaw(P* page, const char * str, const writeSizeType size) {
-			char* ptr = store.pagePtr(page);
+			char* ptr = &store.pagePtr(page)[page->ph.localSize];
 			*((writeSizeType*) ptr) = size;
 			ptr += sizeof(writeSizeType);
 			stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
