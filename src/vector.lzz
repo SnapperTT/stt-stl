@@ -132,6 +132,24 @@ namespace stt {
 			batch_append_copy(li.begin(), li.size());
 			}
 		
+		vector_base_traits (allocatorI* dataAllocator, const T* const data, const storage_size_t size) {
+			sso.init();
+			sso.setAllocator(dataAllocator);
+			batch_append_copy(data, data+size);
+			}
+		
+		inline void markInterned() {
+			// Marks this data as "interned", as in not owned by the container.
+			// Any realloc will fire an assert
+			// Any dealloc will be a noop 
+			STT_STL_ASSERT(!sso.useSso(), "cannot intern a container that is not using a custom allocator");
+			sso.store.allocator = &stt::null_view_allocator::m_static_null_view_allocator;
+			}
+		
+		inline bool isInterned () const {
+			return (sso.store.mAllocator == &stt::null_view_allocator::m_static_null_view_allocator);
+			}
+		
 		//template<typename V>
 		//vector_base_traits (initializer_list<V> li) {
 		//	sso.init();

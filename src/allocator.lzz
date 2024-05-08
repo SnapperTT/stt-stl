@@ -43,7 +43,21 @@ namespace stt {
 		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) { return (uint8_t*) stt_malloc(size); }
 		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) { if (ptr) stt_free(ptr); }
 		};
+	
+	// read-only allocator
+	// turns objects such as strings and vectors into read-only string_view/vector_view like containers
+	// the life time of the memory does not belong to the allocator anymore
+	// used to turn stt::strings and stt::vectors into interned objects
+	// when the allocator that owns the real underlying memory is free'd then
+	// all the storage pointers will be dangling, so you must destroy all the objects first
+	class null_view_allocator : public allocatorI {
+	public:
+		static null_view_allocator m_static_null_view_allocator;
 		
+		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) { STT_STL_ASSERT(false, "cannot allocate as this is for marking read-only objecets"); return NULL; } // forbidden
+		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) {} // no op
+		};
+	
 	// simple bump allocator
 	// usage:
 	// uint8_t buff[128];
