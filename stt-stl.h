@@ -29,8 +29,12 @@
 #endif
 
 // default allocator macro
+// - must be a pointer to a stt::allocatorI
+// - must be valid at compile time
+// - must be aware of static initialisation order issues
+// - (in C++ static initialisation order is not defined)
 #ifndef STT_STL_DEFAULT_ALLOCATOR
-	#define STT_STL_DEFAULT_ALLOCATOR NULL
+	#define STT_STL_DEFAULT_ALLOCATOR ( &crt_allocator::m_static_crt_allocator )
 #endif
 
 // Assert
@@ -521,6 +525,16 @@ namespace stt
 }
 namespace stt
 {
+  class null_view_allocator : public allocatorI
+  {
+  public:
+    static null_view_allocator m_static_null_view_allocator;
+    uint8_t * allocate (alloc_size_t const size) noexcept LZZ_OVERRIDE;
+    void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept LZZ_OVERRIDE;
+  };
+}
+namespace stt
+{
   class bump_allocator : public allocatorI
   {
   public:
@@ -621,6 +635,20 @@ namespace stt
 {
   void crt_allocator::deallocate (uint8_t * ptr, alloc_size_t const size) noexcept LZZ_OVERRIDE
                                                                                           { if (ptr) stt_free(ptr); }
+}
+namespace stt
+{
+  null_view_allocator null_view_allocator::m_static_null_view_allocator;
+}
+namespace stt
+{
+  uint8_t * null_view_allocator::allocate (alloc_size_t const size) noexcept LZZ_OVERRIDE
+                                                                              { STT_STL_ASSERT(false, "cannot allocate as this is for marking read-only objecets"); return NULL; }
+}
+namespace stt
+{
+  void null_view_allocator::deallocate (uint8_t * ptr, alloc_size_t const size) noexcept LZZ_OVERRIDE
+                                                                                          {}
 }
 namespace stt
 {
@@ -748,7 +776,7 @@ namespace stt
 {
   LZZ_INLINE allocatorI * storage::wrangleAllocator ()
                                                       {
-			return mAllocator ? mAllocator : &crt_allocator::m_static_crt_allocator;//stt::getDefaultAllocator();
+			return mAllocator ? mAllocator : ( STT_STL_DEFAULT_ALLOCATOR );
 			}
 }
 namespace stt
@@ -1958,6 +1986,24 @@ namespace stt {
 			batch_append_copy(li.begin(), li.size());
 			}
 		
+		vector_base_traits (allocatorI* dataAllocator, const T* const data, const storage_size_t size) {
+			sso.init();
+			sso.setAllocator(dataAllocator);
+			batch_append_copy(data, data+size);
+			}
+		
+		inline void markInterned() {
+			// Marks this data as "interned", as in not owned by the container.
+			// Any realloc will fire an assert
+			// Any dealloc will be a noop 
+			STT_STL_ASSERT(!sso.useSso(), "cannot intern a container that is not using a custom allocator");
+			sso.store.allocator = &stt::null_view_allocator::m_static_null_view_allocator;
+			}
+		
+		inline bool isInterned () const {
+			return (sso.store.mAllocator == &stt::null_view_allocator::m_static_null_view_allocator);
+			}
+		
 		//template<typename V>
 		//vector_base_traits (initializer_list<V> li) {
 		//	sso.init();
@@ -2523,6 +2569,26 @@ namespace stt {
 			this->sso.init();
 			this->append((string_base_traits::const_iterator*) first, last - first);
 			}
+		
+		string_base_traits (allocatorI* dataAllocator, const char* s, const string_size_t n) {
+			// copy constructs and stores in custom allocator
+			this->sso.init();
+			this->setAllocator(dataAllocator);
+			this->append(s, n);
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_base_traits (allocatorI* dataAllocator, const STRING_TYPE& s) {
+			this->sso.init();
+			this->setAllocator(dataAllocator);
+			this->append(s);
+			}
+			
+		// ============================
+		// Interning
+		
+		inline void markInterned() { base_type::markInterned(); }
+		inline bool isInterned () const { return base_type::isInterned(); }
 		
 		// ============================
 		// Utility

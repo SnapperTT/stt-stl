@@ -118,6 +118,26 @@ namespace stt {
 			this->append((string_base_traits::const_iterator*) first, last - first);
 			}
 		
+		string_base_traits (allocatorI* dataAllocator, const char* s, const string_size_t n) {
+			// copy constructs and stores in custom allocator
+			this->sso.init();
+			this->setAllocator(dataAllocator);
+			this->append(s, n);
+			}
+			
+		template <STT_STRING_TYPE_TEMPLATE_DECL>
+		inline string_base_traits (allocatorI* dataAllocator, const STRING_TYPE& s) {
+			this->sso.init();
+			this->setAllocator(dataAllocator);
+			this->append(s);
+			}
+			
+		// ============================
+		// Interning
+		
+		inline void markInterned() { base_type::markInterned(); }
+		inline bool isInterned () const { return base_type::isInterned(); }
+		
 		// ============================
 		// Utility
 		

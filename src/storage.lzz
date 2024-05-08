@@ -26,7 +26,7 @@ namespace stt {
 			}
 		
 		inline allocatorI* wrangleAllocator() {
-			return mAllocator ? mAllocator : &crt_allocator::m_static_crt_allocator;//stt::getDefaultAllocator();
+			return mAllocator ? mAllocator : ( STT_STL_DEFAULT_ALLOCATOR );
 			}
 		
 		void setAllocator(allocatorI* alloc) {
