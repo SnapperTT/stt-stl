@@ -1236,8 +1236,14 @@ namespace stt
   template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
   void sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::setAllocator (allocatorI * alloc)
                                                      {
-			switchToStorage(local_size(), alloc);
-			d.store.mAllocator = alloc;
+			if (useSso()) {
+				switchToStorage_impl(local_size(), alloc);
+				d.store.mAllocator = alloc;
+				}
+			else {
+				STT_STL_ASSERT(d.store.ptr == NULL, "setting an allocator when non-sso data is already allocated is undefined behaviour");
+				d.store.mAllocator = alloc;
+				}
 			}
 }
 namespace stt
@@ -1935,6 +1941,8 @@ namespace stt {
 		// String compatability stuff
 		inline static constexpr bool isString() { return stt::is_same<TPOD, sso_null_terminated_pod_tag>::value; }
 		inline static constexpr bool isPod() { return stt::is_same<TPOD, sso_null_terminated_pod_tag>::value || stt::is_same<TPOD, sso_pod_tag>::value; }
+		inline static constexpr bool isAlwaysStore() { return IS_ALWAYS_STORE; }
+		
 		inline void writeNullTerminator(uint8_t* ptr) { if constexpr (isString()) { *ptr = 0; }; }
 
 		// casting
@@ -1997,11 +2005,11 @@ namespace stt {
 			// Any realloc will fire an assert
 			// Any dealloc will be a noop 
 			STT_STL_ASSERT(!sso.useSso(), "cannot intern a container that is not using a custom allocator");
-			sso.store.allocator = &stt::null_view_allocator::m_static_null_view_allocator;
+			sso.d.store.mAllocator = &stt::null_view_allocator::m_static_null_view_allocator;
 			}
 		
 		inline bool isInterned () const {
-			return (sso.store.mAllocator == &stt::null_view_allocator::m_static_null_view_allocator);
+			return (sso.d.store.mAllocator == &stt::null_view_allocator::m_static_null_view_allocator);
 			}
 		
 		//template<typename V>
@@ -2050,6 +2058,7 @@ namespace stt {
 		void shrink_to_fit() { sso.shrink_to_fit(); }
 		
 		//inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
+		inline void setAllocator(allocatorI * alloc) { sso.setAllocator(alloc); }
 		
 		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
 		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
@@ -2161,7 +2170,7 @@ public:
 			
 		void resize_no_zero_initialise(const storage_size_t sz) {
 			// I hope you know what you're doing, do not do this with objects
-			sso.resize(sz*sizeof(T), false);
+			sso.resize_impl(sz*sizeof(T), false);
 			}
 			
 		void resize(const storage_size_t sz, const T&value) {
@@ -2175,6 +2184,16 @@ public:
 				sso.resize(sizeof(T)*sz);
 				
 			if constexpr (isString()) writeNullTerminator((uint8_t*) end());
+			}
+			
+		void swap_allocator_pointers(vector_base_traits & other) {
+			// I hope you know what you're doing with this
+			// only call if the allocator objects are swapping their internal arenas
+			if (!isUsingHeap()) STT_STL_ABORT();
+			if (!other.isUsingHeap()) STT_STL_ABORT();
+			allocatorI* tmp = sso.d.store.mAllocator;
+			sso.d.store.mAllocator = other.sso.d.store.mAllocator;
+			other.sso.d.store.mAllocator = tmp;
 			}
 			
 		void swap(vector_base_traits & other) {
