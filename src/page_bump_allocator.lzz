@@ -1,4 +1,13 @@
+#hdr
+
+#end
+
+#src
+
+#end
+
 namespace stt {
+	/*
 class PageBumpAllocatedStorage {
 	public:
 	#warning move to new file
@@ -46,4 +55,5 @@ class PageBumpAllocatedStorage {
 		uint32_t getNumAllocations() const { return page->ph.totalSize; }
 		uint32_t getFreeBytes() const { return page->capacity() - page->ph.localSize; }
 		};
+	*/
 	}

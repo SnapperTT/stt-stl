@@ -169,8 +169,14 @@ namespace stt {
 		
 		// Sets a custom allocator for this storage. Note that this disables sso!
 		void setAllocator(allocatorI* alloc) {
-			switchToStorage(local_size(), alloc);
-			d.store.mAllocator = alloc;
+			if (useSso()) {
+				switchToStorage_impl(local_size(), alloc);
+				d.store.mAllocator = alloc;
+				}
+			else {
+				STT_STL_ASSERT(d.store.ptr == NULL, "setting an allocator when non-sso data is already allocated is undefined behaviour");
+				d.store.mAllocator = alloc;
+				}
 			}
 		
 		void switchToStorage_impl(const storage_size_t wantsCapacityBytes, allocatorI * mAllocator) {
@@ -248,7 +254,7 @@ namespace stt {
 				return clearAndDeallocate();
 			resize_impl(sizeInBytes);
 			}
-		
+			
 		void resize_impl(const uint32_t sizeInBytes, const bool tfill = true) {
 			// resizes and does not call destructors
 			//printf("resize impl %i\n", sizeInBytes);

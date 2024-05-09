@@ -92,7 +92,9 @@ namespace stt {
 			if (nPages == 0) return NULL;
 			P* store[nPages];
 			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
-			return pageHeader::buildList((pageHeader**) &store[0], nPages);
+			for (uint32_t i = 0; i < nPages; ++i)
+				store[i]->initHeader();
+			return pageHeader::buildList((pageHeader**) &store[0], nPages); // TBD - buildListAndInit
 			}
 		static void freePage(P* page) {
 			ThreadSafePageAllocatorTemplates::freeGeneric<P>(page);

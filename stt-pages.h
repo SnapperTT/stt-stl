@@ -2026,6 +2026,7 @@ namespace stt
 			if (nPages == 0) return NULL;
 			P* store[nPages];
 			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
+			//for (uint32_t i = 0; i < nPages; ++i) store[i]->initHeader(); // not needed, buildList will restore
 			return pageHeader::buildList((pageHeader**) &store[0], nPages);
 			}
 }
@@ -2326,14 +2327,15 @@ namespace stt
 namespace stt
 {
   template <typename P>
-  struct pageQueueBumpStorage
+  struct pageQueueBumpStorage : public allocatorI
   {
-    pageQueueImpl <char,P> store;
+    typedef uint16_t writeSizeType;
+    typedef pageQueueImpl <char,P> pqType;
+    pqType store;
     pageQueueBumpStorageOverflowCtr * overflow;
     uint8_t overflowMode;
     static uint8_t const OVERFLOW_MODE_ABORT;
     static uint8_t const OVERFLOW_MODE_TRUNCATE;
-    typedef uint16_t writeSizeType;
     pageQueueBumpStorage ();
     ~ pageQueueBumpStorage ();
     void move_impl (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other);
@@ -2346,8 +2348,10 @@ namespace stt
     void swapOverflow (pageQueueBumpStorageOverflowCtr * otherOverlow);
     template <typename T>
     T * serialise (T const & t);
-    string_view push_back (string_view const & sv);
+    uint8_t * allocate (alloc_size_t const size) noexcept;
+    void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept;
     string_view checkOverflow (char const * str, uint32_t const size, uint32_t const wantsSize);
+    string_view push_back (string_view const & sv);
     string_view push_back (char const * str, uint32_t const size);
     struct pushBackLookupHint
     {
@@ -2362,7 +2366,8 @@ namespace stt
     void clear ();
     void clearKeepingFirstPage ();
     uint32_t remainingBytesIn (P * t) const;
-    stt::string_view writeBufferRaw (P * page, char const * str, writeSizeType const size);
+    static constexpr uint32_t maxWriteSize ();
+    static string_view writeBufferRaw (P * page, char const * str, writeSizeType const size);
   };
 }
 namespace stt
@@ -2431,17 +2436,24 @@ namespace stt
 			// writes arbitary object data to this
 			// note that if (OVERFLOW_MODE_TRUNCATE) then T might be truncated!
 			static_assert(stt::is_pod<T>::value);
-			stt::string_view r = push_back((const char*) &t, sizeof(T));
+			string_view r = push_back((const char*) &t, sizeof(T));
 			return (T*) r.data();
 			}
 }
 namespace stt
 {
   template <typename P>
-  LZZ_INLINE string_view pageQueueBumpStorage <P>::push_back (string_view const & sv)
-                                                                    {
-			return push_back(sv.data(), sv.size());
+  LZZ_INLINE uint8_t * pageQueueBumpStorage <P>::allocate (alloc_size_t const size) noexcept
+                                                                            {
+			string_view r = push_back(NULL, size);
+			return (uint8_t*) r.data();
 			}
+}
+namespace stt
+{
+  template <typename P>
+  LZZ_INLINE void pageQueueBumpStorage <P>::deallocate (uint8_t * ptr, alloc_size_t const size) noexcept
+                                                                                        {}
 }
 namespace stt
 {
@@ -2449,7 +2461,7 @@ namespace stt
   string_view pageQueueBumpStorage <P>::checkOverflow (char const * str, uint32_t const size, uint32_t const wantsSize)
                                                                                                           {
 			// Is this string too big to fit on a page? If so then throw it into a string object
-			constexpr uint32_t maxSize = ((writeSizeType(-1) > store.pageLocalCapacity()) ? writeSizeType(-1) : store.pageLocalCapacity()) - sizeof(writeSizeType);
+			constexpr uint32_t maxSize = maxWriteSize();
 			if (wantsSize > maxSize) {
 				if (overflow) {
 					return overflow->push_back(str, size);
@@ -2462,6 +2474,14 @@ namespace stt
 					}
 				}
 			return string_view(NULL,0);
+			}
+}
+namespace stt
+{
+  template <typename P>
+  LZZ_INLINE string_view pageQueueBumpStorage <P>::push_back (string_view const & sv)
+                                                                    {
+			return push_back(sv.data(), sv.size());
 			}
 }
 namespace stt
@@ -2548,7 +2568,7 @@ namespace stt
 {
   template <typename P>
   LZZ_INLINE void pageQueueBumpStorage <P>::swap (pageQueueBumpStorage & other)
-                                                              { store.swap(other); swapOverflow(other.overflow); }
+                                                              { store.swap(other.store); swapOverflow(other.overflow); }
 }
 namespace stt
 {
@@ -2571,16 +2591,27 @@ namespace stt
 namespace stt
 {
   template <typename P>
-  stt::string_view pageQueueBumpStorage <P>::writeBufferRaw (P * page, char const * str, writeSizeType const size)
-                                                                                                     {
-			char* ptr = &store.pagePtr(page)[page->ph.localSize];
+  LZZ_INLINE constexpr uint32_t pageQueueBumpStorage <P>::maxWriteSize ()
+                                                                     {
+			 // max size that can be stored without overflow
+			return ((writeSizeType(-1) > pqType::pageLocalCapacity()) ? writeSizeType(-1) : pqType::pageLocalCapacity()) - sizeof(writeSizeType);
+			}
+}
+namespace stt
+{
+  template <typename P>
+  string_view pageQueueBumpStorage <P>::writeBufferRaw (P * page, char const * str, writeSizeType const size)
+                                                                                                       {
+			char* ptr = &pqType::pagePtr(page)[page->ph.localSize];
 			*((writeSizeType*) ptr) = size;
 			ptr += sizeof(writeSizeType);
-			stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
+			
+			if (str) //only copy if this is non null, otherwise leave uninitalised
+				stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
 			
 			page->ph.localSize += size + sizeof(writeSizeType);
 			
-			return stt::string_view(ptr, size);
+			return string_view(ptr, size);
 			}
 }
 #undef LZZ_INLINE
@@ -2601,7 +2632,14 @@ namespace stt
 {
   string_view pageQueueBumpStorageOverflowCtr::push_back (char const * str, uint32_t const sz)
                                                                            {
-			string24* r = overflowStore.push_back(string24(str, sz));
+			string24 * r;
+			if (str)
+				r = overflowStore.push_back(string24(str, sz));
+			else {
+				string24 tmp;
+				tmp.resize_no_zero_initialise(sz);
+				r = overflowStore.push_back(std::move(tmp));
+				}
 			return r->to_string_view();
 			}
 }
@@ -2629,64 +2667,6 @@ namespace stt
 #ifndef LZZ_page_bump_allocator_hh
 #define LZZ_page_bump_allocator_hh
 #define LZZ_INLINE inline
-namespace stt
-{
-  class PageBumpAllocatedStorage
-  {
-  public:
-    pageU * page;
-    PageBumpAllocatedStorage ();
-    ~ PageBumpAllocatedStorage ();
-    template <typename T>
-    static constexpr uint32_t roundedSizeOf ();
-    bool contains (void * ptr) const;
-    template <typename T>
-    T * allocate ();
-    template <typename T>
-    void free (T * t);
-    uint32_t getNumAllocations () const;
-    uint32_t getFreeBytes () const;
-  };
-}
-namespace stt
-{
-  template <typename T>
-  LZZ_INLINE constexpr uint32_t PageBumpAllocatedStorage::roundedSizeOf ()
-                                                                      { return sizeof(T); }
-}
-namespace stt
-{
-  LZZ_INLINE bool PageBumpAllocatedStorage::contains (void * ptr) const
-                                                      {
-			uintptr_t pagei = uintptr_t(page);
-			uintptr_t ptri = uintptr_t(ptr);
-			return (ptri >= pagei) && (pagei < pagei + page->storageSize());
-			}
-}
-namespace stt
-{
-  template <typename T>
-  T * PageBumpAllocatedStorage::allocate ()
-                              {
-			T* r = (T*) &(page->ptr()[page->ph.localSize]);
-			page->ph.localSize += roundedSizeOf<T>();
-			page->ph.totalSize++;
-			new (r) T();
-			return r;
-			}
-}
-namespace stt
-{
-  template <typename T>
-  void PageBumpAllocatedStorage::free (T * t)
-                                {
-			if (page->ph.localSize == (uintptr_t(t) - uintptr_t(page)) + roundedSizeOf<T>()) {
-				page->ph.localSize -= sizeof(T);
-				}
-			page->ph.totalSize--;
-			t->~T();
-			}
-}
 #undef LZZ_INLINE
 #endif
 #undef LZZ_OVERRIDE
@@ -2701,33 +2681,6 @@ namespace stt
 //
 
 #define LZZ_INLINE inline
-namespace stt
-{
-  PageBumpAllocatedStorage::PageBumpAllocatedStorage ()
-                                           {
-			page = ThreadSafePageAllocator::allocPage();
-			page->initHeader();
-			}
-}
-namespace stt
-{
-  PageBumpAllocatedStorage::~ PageBumpAllocatedStorage ()
-                                            {
-			STT_STL_ASSERT(page->ph.totalSize == 0, ""); //remaning allocations
-			ThreadSafePageAllocator::freePage(page);
-			page = NULL;
-			}
-}
-namespace stt
-{
-  uint32_t PageBumpAllocatedStorage::getNumAllocations () const
-                                                   { return page->ph.totalSize; }
-}
-namespace stt
-{
-  uint32_t PageBumpAllocatedStorage::getFreeBytes () const
-                                              { return page->capacity() - page->ph.localSize; }
-}
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
 #endif //STT_STL_IMPL_DOUBLE_GUARD_page_bump_allocator
