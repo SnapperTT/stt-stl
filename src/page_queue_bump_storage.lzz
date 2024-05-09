@@ -92,6 +92,7 @@ namespace stt {
 			}
 			
 		inline uint8_t* allocate(const alloc_size_t size__NOEXCEPT) {
+			return new uint8_t[size];
 			string_view r = push_back(NULL, size);
 			return (uint8_t*) r.data();
 			}
