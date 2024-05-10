@@ -1640,7 +1640,7 @@ namespace stt
   union pageTemplate
   {
     pageHeader ph;
-    uint8_t (_data) [STT_PAGE_SIZE];
+    uint8_t (_data) [SIZE];
     void initHeader ();
     constexpr uint8_t * ptr ();
     constexpr uint8_t const * ptr () const;

@@ -199,6 +199,7 @@ namespace stt {
 		
 		//inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
 		inline void setAllocator(allocatorI * alloc) { sso.setAllocator(alloc); }
+		inline allocatorI* getCustomAllocator() const { return (sso.useSso() ? NULL : sso.d.store.mAllocator); } // returns the custom allocator object, if set. If no custom allocator has been set return NULL
 		
 		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
 		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
