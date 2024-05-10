@@ -92,7 +92,6 @@ namespace stt {
 			}
 			
 		inline uint8_t* allocate(const alloc_size_t size__NOEXCEPT) {
-			return new uint8_t[size];
 			string_view r = push_back(NULL, size);
 			return (uint8_t*) r.data();
 			}
@@ -109,7 +108,7 @@ namespace stt {
 					if (overflowMode == OVERFLOW_MODE_ABORT)
 						stt::error::array_out_of_bounds(wantsSize, maxSize);
 					if (overflowMode == OVERFLOW_MODE_TRUNCATE)
-						return push_back(str, maxSize);
+						return push_back(str, maxSize - sizeof(writeSizeType));
 					}
 				}
 			return string_view(NULL,0);
@@ -201,6 +200,9 @@ namespace stt {
 				stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
 			
 			page->ph.localSize += size + sizeof(writeSizeType);
+			
+			//if (page->ph.next) // debug tail corruption REMOVE ME
+			//	abort();
 			
 			return string_view(ptr, size);
 			}

@@ -147,7 +147,7 @@ namespace stt {
 	template<unsigned int SIZE, pageTypeEnum ET>
 	union pageTemplate {
 		pageHeader ph;
-		uint8_t _data[STT_PAGE_SIZE];
+		uint8_t _data[SIZE];
 		
 		inline void initHeader() { ph.initToZero(); ph.allocationInfo = SIZE; }
 		STT_CONSTEXPR__uint8_t* ptr()             { return &_data[STT_PAGE_HEADER_SIZE]; }

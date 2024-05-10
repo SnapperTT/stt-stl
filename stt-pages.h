@@ -1631,7 +1631,7 @@ namespace stt
   union pageTemplate
   {
     pageHeader ph;
-    uint8_t (_data) [STT_PAGE_SIZE];
+    uint8_t (_data) [SIZE];
     void initHeader ();
     constexpr uint8_t * ptr ();
     constexpr uint8_t const * ptr () const;
@@ -2026,8 +2026,9 @@ namespace stt
 			if (nPages == 0) return NULL;
 			P* store[nPages];
 			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
-			//for (uint32_t i = 0; i < nPages; ++i) store[i]->initHeader(); // not needed, buildList will restore
-			return pageHeader::buildList((pageHeader**) &store[0], nPages);
+			for (uint32_t i = 0; i < nPages; ++i)
+				store[i]->initHeader();
+			return pageHeader::buildList((pageHeader**) &store[0], nPages); // TBD - buildListAndInit
 			}
 }
 namespace stt
@@ -2470,7 +2471,7 @@ namespace stt
 					if (overflowMode == OVERFLOW_MODE_ABORT)
 						stt::error::array_out_of_bounds(wantsSize, maxSize);
 					if (overflowMode == OVERFLOW_MODE_TRUNCATE)
-						return push_back(str, maxSize);
+						return push_back(str, maxSize - sizeof(writeSizeType));
 					}
 				}
 			return string_view(NULL,0);
@@ -2610,6 +2611,9 @@ namespace stt
 				stt_memcpy((uint8_t*) ptr, (const uint8_t*) str, size);
 			
 			page->ph.localSize += size + sizeof(writeSizeType);
+			
+			//if (page->ph.next) // debug tail corruption REMOVE ME
+			//	abort();
 			
 			return string_view(ptr, size);
 			}
