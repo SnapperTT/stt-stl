@@ -171,8 +171,9 @@ namespace stt {
 		
 		vector_base_traits& operator = (vector_base_traits__MVSEM other) {
 			//printf("move construct\n");
+			allocatorI* a = other.getCustomAllocator();
 			sso.clear();
-			if ((!other.sso.useSso()) && (other.sso.size() > sso.capacity())) {
+			if ((!other.sso.useSso()) && (a || other.sso.size() > sso.capacity())) {
 				// Other is using store, just move store variable
 				sso.disableSsoFlag();
 				sso.d.store = other.sso.d.store;
