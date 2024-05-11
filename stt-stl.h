@@ -561,6 +561,10 @@ namespace stt
 }
 namespace stt
 {
+  typedef auto_bump_allocator <4096> auto_bump_allocator4096;
+}
+namespace stt
+{
   struct defaul_allocator_ctr
   {
     static allocatorI * defaultAllocator;
@@ -587,6 +591,7 @@ namespace stt
     : bump_allocator ()
                                                           {
 			bind(&buff[0], SIZE);
+			fallback = &crt_allocator::m_static_crt_allocator;
 			}
 }
 #undef LZZ_INLINE
@@ -662,15 +667,24 @@ namespace stt
 {
   uint8_t * bump_allocator::allocate (alloc_size_t const size) noexcept LZZ_OVERRIDE
                                                                               {
-			if (mSeek + size <= mSize)
-				return &mBuff[mSeek];
-			return fallback ? fallback->allocate(size) : NULL; // bad alloc, out of buffer size
+		//	stt_dbg_log ("sst alloc %p, addr: %p, sz %i, [%i/%i]", this, r, int(size), int(mSize), int(mSeek));
+			if (mSeek + size <= mSize) {
+				uint8_t* r = &mBuff[mSeek];
+				mSeek += size;
+				return r;
+				}
+			else {
+				uint8_t* r =  fallback ? fallback->allocate(size) : NULL; // bad alloc, out of buffer size
+				stt_dbg_log ("sst alloc FALLBACK %p, addr: %p, sz %i, [%i/%i]", this, r, int(size), int(mSize), int(mSeek));
+				return r;
+				}
 			}
 }
 namespace stt
 {
   void bump_allocator::deallocate (uint8_t * ptr, alloc_size_t const size) noexcept LZZ_OVERRIDE
                                                                                           {
+			//stt_dbg_log ("sst free %p, addr: %p, sz %i, [%i/%i]", this, ptr, int(size), int(mSize), int(mSeek));
 			uintptr_t ptrT = (uintptr_t) ptr;
 			uintptr_t begin = (uintptr_t) mBuff;
 			uintptr_t end = begin + mSize;
@@ -865,7 +879,7 @@ namespace stt
 namespace stt
 {
   storage_size_t storage::calcualteNextCapacity (storage_size_t const currentCapacity, storage_size_t const minNewCapacity, storage_size_t const stride)
-                                                                                                                                                                    {
+                                                                                                                                                                    {//, const allocatorI * allocator) {
 			// Applies a growth factor to capacity
 			if (minNewCapacity > currentCapacity*2) {
 				return minNewCapacity; 
@@ -2031,8 +2045,9 @@ namespace stt {
 		
 		vector_base_traits& operator = (vector_base_traits&& other) {
 			//printf("move construct\n");
+			allocatorI* a = other.getCustomAllocator();
 			sso.clear();
-			if ((!other.sso.useSso()) && (other.sso.size() > sso.capacity())) {
+			if ((!other.sso.useSso()) && (a || other.sso.size() > sso.capacity())) {
 				// Other is using store, just move store variable
 				sso.disableSsoFlag();
 				sso.d.store = other.sso.d.store;
@@ -2059,6 +2074,7 @@ namespace stt {
 		
 		//inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
 		inline void setAllocator(allocatorI * alloc) { sso.setAllocator(alloc); }
+		inline allocatorI* getCustomAllocator() const { return (sso.useSso() ? NULL : sso.d.store.mAllocator); } // returns the custom allocator object, if set. If no custom allocator has been set return NULL
 		
 		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
 		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }

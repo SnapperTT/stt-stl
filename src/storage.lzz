@@ -43,7 +43,7 @@ namespace stt {
 			ptr = NULL;
 			}
 			
-		static storage_size_t calcualteNextCapacity(const storage_size_t currentCapacity, const storage_size_t minNewCapacity, const storage_size_t stride) {
+		static storage_size_t calcualteNextCapacity(const storage_size_t currentCapacity, const storage_size_t minNewCapacity, const storage_size_t stride) {//, const allocatorI * allocator) {
 			// Applies a growth factor to capacity
 			if (minNewCapacity > currentCapacity*2) {
 				return minNewCapacity; 

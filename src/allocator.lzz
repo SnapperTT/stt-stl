@@ -78,12 +78,21 @@ namespace stt {
 			}
 		
 		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) {
-			if (mSeek + size <= mSize)
-				return &mBuff[mSeek];
-			return fallback ? fallback->allocate(size) : NULL; // bad alloc, out of buffer size
+		//	stt_dbg_log ("sst alloc %p, addr: %p, sz %i, [%i/%i]", this, r, int(size), int(mSize), int(mSeek));
+			if (mSeek + size <= mSize) {
+				uint8_t* r = &mBuff[mSeek];
+				mSeek += size;
+				return r;
+				}
+			else {
+				uint8_t* r =  fallback ? fallback->allocate(size) : NULL; // bad alloc, out of buffer size
+				stt_dbg_log ("sst alloc FALLBACK %p, addr: %p, sz %i, [%i/%i]", this, r, int(size), int(mSize), int(mSeek));
+				return r;
+				}
 			}
 			
 		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) {
+			//stt_dbg_log ("sst free %p, addr: %p, sz %i, [%i/%i]", this, ptr, int(size), int(mSize), int(mSeek));
 			uintptr_t ptrT = (uintptr_t) ptr;
 			uintptr_t begin = (uintptr_t) mBuff;
 			uintptr_t end = begin + mSize;
@@ -125,8 +134,11 @@ namespace stt {
 		uint8_t buff[SIZE];
 		auto_bump_allocator () : bump_allocator() {
 			bind(&buff[0], SIZE);
+			fallback = &crt_allocator::m_static_crt_allocator;
 			}
 		};
+		
+	typedef auto_bump_allocator<4096> auto_bump_allocator4096;
 			
 	struct defaul_allocator_ctr {
 		static allocatorI* defaultAllocator = &crt_allocator::m_static_crt_allocator;// STT_STL_DEFAULT_ALLOCATOR ;
