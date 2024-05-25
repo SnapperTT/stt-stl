@@ -168,7 +168,7 @@ namespace stt {
 						}
 					}
 				if (remainingBytes >= wantsSize) {
-					if (hint->page == page)
+					if (hint && hint->page == page)
 						hint->avaliableSize -= wantsSize;
 					return writeBufferRaw(page, str, size);
 					}

@@ -46,6 +46,7 @@ namespace stt {
 				disableSsoFlag();
 				}
 			else {
+				d.store.initToZero(); // this isn't strictly needed but it will throw maybe-unitinlised warnings if disabled
 				enableSsoFlag();
 				if constexpr (isNullTerminatedPod())
 					d.sso[0] = 0;
@@ -380,7 +381,7 @@ namespace stt {
 			// marks buffer as empty
 			destroy_elements();
 			
-			if (useSso() && !isAlwaysStore())
+			if (useSso())
 				set_local_size(0);
 			else
 				d.store.size = 0;

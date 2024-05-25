@@ -75,6 +75,7 @@ namespace stt {
 		// Constructors
 		
 		inline string_base_traits()  noexcept : base_type() {}
+		//inline ~string_base_traits() noexcept { ~base_type(); }
 		
 		inline string_base_traits(allocatorI* alloc) noexcept : base_type() { this->sso.setAllocator(alloc); }
 		

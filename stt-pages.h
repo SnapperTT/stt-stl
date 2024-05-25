@@ -805,7 +805,12 @@ namespace stt
 		// assembles pages into a linked list, then adds to the freelist
 		if (!nPages) return;
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
-			return PassthroughPageAllocator::freeGeneric<pageU>(pages, nPages);
+		if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
+			return PassthroughPageAllocator::freeGeneric<jumboPageU>(pages, nPages);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
+			return PassthroughPageAllocator::freeGeneric<pageU>(pages, nPages);	
+		else
+			STT_STL_ABORT();
 		#endif
 		freePagesList(pageHeader::buildList(pages, nPages), nPages);
 		}
@@ -817,7 +822,12 @@ namespace stt
 		// frees an already prepared linked list of pages
 		// if the number of pages is not known then knownCount 
 		#ifdef STT_PASSTHROUGH_TL_PAGE_ALLOCATOR
+		if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
+			return PassthroughPageAllocator::freeGenericList<jumboPageU>(pagesLinkedList);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
 			return PassthroughPageAllocator::freeGenericList<pageU>(pagesLinkedList);
+		else
+			STT_STL_ABORT();
 		#endif
 		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("ThreadLocalPagePool %s freePagesList IN:\n", getThreadLabel());
@@ -1102,6 +1112,8 @@ namespace stt
 		#if STT_STL_DEBUG_PAGE
 			stt_dbg_log("SystemAllocate: Allocated %i (%i) pages, dbg_totalPagesAllocated: %i\n", nPagesTotal, nSplit, int(dbg_totalPagesAllocated));
 		#endif
+		if (sizeofPageType > 60000)
+			stt_dbg_log("STRPACK SystemAllocate JUMBO: Allocated %i (%i) pages, starting with %p, dbg_totalPagesAllocated: %i\n", nPagesTotal, nSplit, ph[0], int(dbg_totalPagesAllocated));
 		}
 }
 namespace stt
@@ -2551,7 +2563,7 @@ namespace stt
 						}
 					}
 				if (remainingBytes >= wantsSize) {
-					if (hint->page == page)
+					if (hint && hint->page == page)
 						hint->avaliableSize -= wantsSize;
 					return writeBufferRaw(page, str, size);
 					}
