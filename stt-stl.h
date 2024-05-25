@@ -1021,6 +1021,7 @@ namespace stt
 				disableSsoFlag();
 				}
 			else {
+				d.store.initToZero(); // this isn't strictly needed but it will throw maybe-unitinlised warnings if disabled
 				enableSsoFlag();
 				if constexpr (isNullTerminatedPod())
 					d.sso[0] = 0;
@@ -1527,7 +1528,7 @@ namespace stt
 			// marks buffer as empty
 			destroy_elements();
 			
-			if (useSso() && !isAlwaysStore())
+			if (useSso())
 				set_local_size(0);
 			else
 				d.store.size = 0;
@@ -2046,14 +2047,15 @@ namespace stt {
 		vector_base_traits& operator = (vector_base_traits&& other) {
 			//printf("move construct\n");
 			allocatorI* a = other.getCustomAllocator();
-			sso.clear();
 			if ((!other.sso.useSso()) && (a || other.sso.size() > sso.capacity())) {
 				// Other is using store, just move store variable
+				sso.clearAndDeallocate();
 				sso.disableSsoFlag();
 				sso.d.store = other.sso.d.store;
 				other.sso.init(); // reset to an empty container without calling destructors
 				return *this;
 				}
+			sso.clear();
 			batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
 			return *this;
 			}
@@ -2111,7 +2113,11 @@ namespace stt {
 		inline T& back()             { return data()[size()-1]; }
 		inline const T& back() const { return data()[size()-1]; }
 		
-		inline void clear() { sso.clear(); writeNullTerminator((uint8_t*) sso.data()); }
+		inline void clear() {
+			sso.clear();
+			if constexpr (isString())
+				writeNullTerminator((uint8_t*) sso.data());
+			}
 		
 		inline bool isUsingSso()  const { return sso.useSso(); }
 		inline bool isUsingHeap() const { return !sso.useSso(); }
@@ -2562,6 +2568,7 @@ namespace stt {
 		// Constructors
 		
 		inline string_base_traits()  noexcept : base_type() {}
+		//inline ~string_base_traits() noexcept { ~base_type(); }
 		
 		inline string_base_traits(allocatorI* alloc) noexcept : base_type() { this->sso.setAllocator(alloc); }
 		

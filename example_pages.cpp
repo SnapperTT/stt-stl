@@ -7,9 +7,9 @@
 
 #ifndef LZZ_example_pages_hh
 #define LZZ_example_pages_hh
-#define STT_STL_DEBUG 1
-#define STT_STL_DEBUG_MEMORY 1
-#define STT_STL_DEBUG_PAGE 1
+//#define STT_STL_DEBUG 1
+//#define STT_STL_DEBUG_MEMORY 1
+//#define STT_STL_DEBUG_PAGE 1
 #include "stt-stl.h"
 #define STT_STL_IMPL 1
 #define LZZ_INLINE inline
@@ -75,8 +75,12 @@ int main (int argc, char * * argv)
 		
 		stt::vector24<stt::string_view> svs;
 		svs.setAllocator(&store);
+		
+		// using a hint can speed up push_back_compact in a loop
+		stt::pageQueueBumpStorage<stt::pageU>::pushBackLookupHint mHint;
+		
 		for (uint i = 0; i < 100; ++i) {
-			svs.push_back(store.push_back(testStr));
+			svs.push_back(store.push_back_compact(testStr, &mHint));
 			stt::stt_dbg_log("INSERT: %i svs: [%p, %i] %s\n", i, svs[i].data(), int(svs[i].size()), svs[i].data());
 			}
 		
@@ -84,7 +88,7 @@ int main (int argc, char * * argv)
 			stt::stt_dbg_log("READ: %i svs: [%p, %i] %s\n", i, svs[i].data(), int(svs[i].size()), svs[i].data());
 			}
 	}
-	
+
 	// Cleanup - 
 	// If you are exiting the program you can just ::exit() and forgo cleanup
 	
