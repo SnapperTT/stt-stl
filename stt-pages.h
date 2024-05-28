@@ -476,7 +476,7 @@ namespace stt
                                   {
 		// Reads the value of @_list and replaces it with NULL
 		pageHeader* workingList = _list.load();
-		while (!_list.compare_exchange_weak(workingList, NULL));
+		while (!_list.compare_exchange_weak(workingList, NULL, std::memory_order_release, std::memory_order_relaxed));
 		return workingList; 
 		}
 }
@@ -522,7 +522,7 @@ namespace stt
 		pageHeader* w = allocFreeList;
 		uint32_t i = 0;
 		if (w) {
-			for (i = 0; i < nPages && w->next; ++i) {
+			for (i = 0; i < nPages && w; ++i) {//->next; ++i) {
 				store[i] = w;
 				w = w->next;
 				}
@@ -547,6 +547,8 @@ namespace stt
 			#endif
 			return;
 			}
+		
+		//batchSize = 0;
 		
 		// we have a parital linked list, we need system allocation
 		pageHeader* remaining = NULL;
@@ -906,8 +908,8 @@ namespace stt
 {
   ThreadSafePageAllocatorImpl::ThreadSafePageAllocatorImpl ()
                                       {
-		PageGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_NORMAL, 100);
-		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 10);
+		PageGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_NORMAL, 10);
+		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 1);
 		
 		
 		initThreadLocalPools(); // init for this thread
@@ -1086,7 +1088,14 @@ namespace stt
 		ph[nPagesTotal-1]->next = NULL;
 		
 		// are we splitting?
-		if (nSplit > 0) {
+		if (nSplit == nPagesTotal) {
+			// only goes here if batchSize == 0
+			*groupA = ph[0];
+			*groupB = NULL;
+			ph[0]->cachedWorkingEnd = ph[nSplit-1];
+			}
+		else if (nSplit > 0) {
+			// this is the normal branch
 			ph[nSplit-1]->next = NULL;
 			*groupA = ph[0];
 			*groupB = ph[nSplit];
@@ -1110,10 +1119,8 @@ namespace stt
 			dbg_totalPagesAllocated += nPagesTotal;
 		#endif
 		#if STT_STL_DEBUG_PAGE
-			stt_dbg_log("SystemAllocate: Allocated %i (%i) pages, dbg_totalPagesAllocated: %i\n", nPagesTotal, nSplit, int(dbg_totalPagesAllocated));
+			stt_dbg_log("SystemAllocate: Allocated %i (%i) pages, starting with %p, dbg_totalPagesAllocated: %i\n", nPagesTotal, nSplit, ph[0], int(dbg_totalPagesAllocated));
 		#endif
-		if (sizeofPageType > 60000)
-			stt_dbg_log("STRPACK SystemAllocate JUMBO: Allocated %i (%i) pages, starting with %p, dbg_totalPagesAllocated: %i\n", nPagesTotal, nSplit, ph[0], int(dbg_totalPagesAllocated));
 		}
 }
 namespace stt
