@@ -64,11 +64,11 @@ int main (int argc, char ** argv) {
 		
 		for (uint i = 0; i < 100; ++i) {
 			svs.push_back(store.push_back_compact(testStr, &mHint));
-			stt::stt_dbg_log("INSERT: %i svs: [%p, %i] %s\n", i, svs[i].data(), int(svs[i].size()), svs[i].data());
+			stt::stt_dbg_log("INSERT: %i svs: [%p, %i] %.*s\n", i, svs[i].data(), int(svs[i].size()), int(svs[i].size()), svs[i].data());
 			}
 		
 		for (uint i = 0; i < 100; ++i) {
-			stt::stt_dbg_log("READ: %i svs: [%p, %i] %s\n", i, svs[i].data(), int(svs[i].size()), svs[i].data());
+			stt::stt_dbg_log("READ: %i svs: [%p, %i] %.*s\n", i, svs[i].data(), int(svs[i].size()), int(svs[i].size()), svs[i].data());
 			}
 	}
 

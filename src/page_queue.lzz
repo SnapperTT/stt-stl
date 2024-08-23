@@ -19,10 +19,32 @@ namespace stt {
 #src
 #end
 
+/*
+struct bitmapPageQueueImp {
+	// Purpose: pageQueue like storage that supports erasing elements
+	// 
+	//push_back_compact( // packs into local storage
+	};
+	
+design 1: pageQueueCommon
+			=> pageQueueImpl
+			=> bitmapPageQueueImpl
+			
+slottedPageQueue
+	-> like a page_queue of optional<T>
+	-> itterator is guaranteed to return valid (non-null) values
+	-> push_back()->inserts at end of queue
+	-> push_back_compact(val, hint)->inserts into first empty slot
+	
+why do i want this? for hash map, general purpose bitmap allocator
+*/
+
 namespace stt {	
 	template<typename T, typename P>
 	struct pageQueueImpl {
 		// Purpose: a thin std::vector replacement with discontigious storage of fixed-size blocks
+		// Notes:
+		// itteration - use the iterator object
 		P* head;
 		P* tail;
 		

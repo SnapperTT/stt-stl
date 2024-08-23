@@ -1635,8 +1635,7 @@ namespace stt
     uint64_t allocationInfo;
     uint32_t localSize;
     uint32_t totalSize;
-    uint64_t useMask;
-    uint64_t (_unused) [3];
+    uint64_t (userData) [4];
     void initToZero ();
     void appendList (pageHeader * other);
     pageHeader * splitList (uint32_t const nPages);
@@ -1682,7 +1681,10 @@ namespace stt
 			allocationInfo = 0;
 			localSize = 0;
 			totalSize = 0;
-			useMask = 0;
+			userData[0] = 0;
+			userData[1] = 0;
+			userData[2] = 0;
+			userData[3] = 0;
 			}
 }
 namespace stt

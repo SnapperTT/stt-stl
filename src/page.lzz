@@ -42,11 +42,12 @@ namespace stt {
 		//void* allocator;			  // (unused) what object controls the lifetime of this? If NULL then it is assumed that the global ThreadSafePageAllocatorImpl handles this
 		pageHeader* next;			  // next page
 		pageHeader* cachedWorkingEnd; // (optional) if this is the head of a linked list then this is the end page, otherwise this is undefiend
-		uint64_t allocationInfo;	  // 
+		
+		uint64_t allocationInfo;	  //
 		uint32_t localSize;			  // (optional) if this page is an array then this is the local size of the array
 		uint32_t totalSize;			  // (optional) if this is the head of a linked list of arrays then this is the running total
-		uint64_t useMask;			  // (optional) if this page is an bitmap then this is indicates which elements are used 
-		uint64_t _unused[3];
+		uint64_t userData[4];		  // general purpose memory
+
 		
 		inline void initToZero() {
 			//allocator = NULL;
@@ -55,8 +56,12 @@ namespace stt {
 			allocationInfo = 0;
 			localSize = 0;
 			totalSize = 0;
-			useMask = 0;
+			userData[0] = 0;
+			userData[1] = 0;
+			userData[2] = 0;
+			userData[3] = 0;
 			}
+		
 		
 		void appendList(pageHeader* other) {
 			// appends other to this list
