@@ -111,6 +111,7 @@ namespace stt {
 			
 		void dbg_printf () const {
 			#if STT_STL_DEBUG
+				// this generates compiler warnings on windows due to different format codes for integer sizes
 				printf("mAllocator: %lx, ptr: %lx, size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
 			#endif
 			}

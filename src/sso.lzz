@@ -35,6 +35,11 @@ namespace stt {
 		inline sso_base() { init(); }
 		
 		inline void init() {
+			#if STT_STL_DEBUG
+				#if STT_STL_DEBUG > 1
+					printf("construct sso_base: %p %s\n", this, __PRETTY_FUNCTION__);
+				#endif
+			#endif
 			#if STT_STL_DEBUG_MEMORY
 				// poison this so that null-termination errors
 				// become visible
@@ -61,6 +66,11 @@ namespace stt {
 			}
 			
 		~sso_base() {
+			#if STT_STL_DEBUG
+				#if STT_STL_DEBUG > 1
+					printf("deconstruct sso_base: %p %s\n", this, __PRETTY_FUNCTION__);
+				#endif
+			#endif
 			destroy_elements();
 			if (!useSso())
 				d.store.deallocate();
@@ -188,7 +198,7 @@ namespace stt {
 			store2.growCapacity(ck, (T*) NULL);
 					
 			//printf("move elements %lx, %lx, %i:\n", (intptr_t) store2.ptr, (intptr_t) &d.sso[0], local_size()/element_size());
-			move_elements(store2.ptr, &d.sso[0], local_size()/element_size());
+			move_elements_in_place(store2.ptr, &d.sso[0], local_size()/element_size());
 			store2.size = local_size();
 			
 			disableSsoFlag();

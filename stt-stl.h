@@ -917,6 +917,7 @@ namespace stt
   void storage::dbg_printf () const
                                          {
 			#if STT_STL_DEBUG
+				// this generates compiler warnings on windows due to different format codes for integer sizes
 				printf("mAllocator: %lx, ptr: %lx, size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
 			#endif
 			}
@@ -1010,6 +1011,11 @@ namespace stt
   template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
   LZZ_INLINE void sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::init ()
                                    {
+			#if STT_STL_DEBUG
+				#if STT_STL_DEBUG > 1
+					printf("construct sso_base: %p %s\n", this, __PRETTY_FUNCTION__);
+				#endif
+			#endif
 			#if STT_STL_DEBUG_MEMORY
 				// poison this so that null-termination errors
 				// become visible
@@ -1040,6 +1046,11 @@ namespace stt
   template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
   sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::~ sso_base ()
                             {
+			#if STT_STL_DEBUG
+				#if STT_STL_DEBUG > 1
+					printf("deconstruct sso_base: %p %s\n", this, __PRETTY_FUNCTION__);
+				#endif
+			#endif
 			destroy_elements();
 			if (!useSso())
 				d.store.deallocate();
@@ -1273,7 +1284,7 @@ namespace stt
 			store2.growCapacity(ck, (T*) NULL);
 					
 			//printf("move elements %lx, %lx, %i:\n", (intptr_t) store2.ptr, (intptr_t) &d.sso[0], local_size()/element_size());
-			move_elements(store2.ptr, &d.sso[0], local_size()/element_size());
+			move_elements_in_place(store2.ptr, &d.sso[0], local_size()/element_size());
 			store2.size = local_size();
 			
 			disableSsoFlag();
