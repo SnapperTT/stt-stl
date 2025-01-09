@@ -380,7 +380,7 @@ protected:
 			// move this's sso data to a temp buffer
 			const storage_size_t lsz = sso.local_size();
 			uint8_t tmpBuff[sizeof(*this)];
-			sso.move_elements(&tmpBuff[0], &sso.d.sso[0], lsz / stride);
+			sso.move_elements_in_place(&tmpBuff[0], &sso.d.sso[0], lsz / stride); // we are copying into unitialised space so we must in-place move
 			
 			//printf("swap2_impl %s\n", __PRETTY_FUNCTION__);
 			//printf("swap2_impl lsz %i, stride %i\n", lsz, stride);
@@ -395,13 +395,13 @@ protected:
 			else {
 				//printf("swap2_impl path B\n");
 				const storage_size_t olsz = other.sso.local_size();
-				sso.move_elements(&sso.d.sso[0], &other.sso.d.sso[0], olsz / stride);
+				sso.move_elements_in_place(&sso.d.sso[0], &other.sso.d.sso[0], olsz / stride);
 				sso.set_local_size(olsz);
 				if constexpr (isString()) writeNullTerminator(&sso.d.sso[olsz]);
 				}
 				
 			// put the temp sso data into temp and switch it to sso mode
-			other.sso.move_elements(&other.sso.d.sso[0], &tmpBuff[0], lsz / stride);
+			other.sso.move_elements_in_place(&other.sso.d.sso[0], &tmpBuff[0], lsz / stride);
 			other.sso.set_local_size(lsz);
 			if constexpr (isString()) other.writeNullTerminator(&other.sso.d.sso[lsz]);
 			}

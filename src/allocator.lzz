@@ -38,7 +38,10 @@ namespace stt {
 	// wrapper of malloc/free
 	class crt_allocator : public allocatorI {
 	public:
-		static crt_allocator m_static_crt_allocator;
+		//static crt_allocator& m_static_crt_allocator;
+		static crt_allocator* getStaticCrtAllocator() { static crt_allocator s; return &s; }
+		
+		inline crt_allocator() {}
 		
 		uint8_t* allocate(const alloc_size_t size__NOEXCEPT_OVERRIDE) { return (uint8_t*) stt_malloc(size); }
 		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) { if (ptr) stt_free(ptr); }
@@ -134,15 +137,9 @@ namespace stt {
 		uint8_t buff[SIZE];
 		auto_bump_allocator () : bump_allocator() {
 			bind(&buff[0], SIZE);
-			fallback = &crt_allocator::m_static_crt_allocator;
+			fallback = STT_STL_DEFAULT_ALLOCATOR ;
 			}
 		};
 		
 	typedef auto_bump_allocator<4096> auto_bump_allocator4096;
-			
-	struct defaul_allocator_ctr {
-		static allocatorI* defaultAllocator = &crt_allocator::m_static_crt_allocator;// STT_STL_DEFAULT_ALLOCATOR ;
-		};
-	void setDefaultAllocator(allocatorI* _alloc) { defaul_allocator_ctr::defaultAllocator = _alloc; }
-	allocatorI* getDefaultAllocator() { return defaul_allocator_ctr::defaultAllocator; }
 	}

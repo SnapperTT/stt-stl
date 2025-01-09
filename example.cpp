@@ -48,9 +48,7 @@ namespace stt {
 int main (int argc, char * * argv)
                                   {
 	//printf("Hello\n");
-	static stt::crt_allocator alloc;
-	stt::setDefaultAllocator(&alloc);
-		
+			
 	#if 1
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;
