@@ -57,7 +57,7 @@ namespace stt {
 		static const uint8_t OVERFLOW_MODE_TRUNCATE = 1;
 		
 		
-		pageQueueBumpStorage() { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
+		pageQueueBumpStorage()  { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
 		~pageQueueBumpStorage() { if (overflow) overflow->clear(); }
 		
 		void move_impl(STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) {

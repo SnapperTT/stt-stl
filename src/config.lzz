@@ -26,7 +26,7 @@
 // - must be aware of static initialisation order issues
 // - (in C++ static initialisation order is not defined)
 #ifndef STT_STL_DEFAULT_ALLOCATOR
-	#define STT_STL_DEFAULT_ALLOCATOR ( &crt_allocator::m_static_crt_allocator )
+	#define STT_STL_DEFAULT_ALLOCATOR ( crt_allocator::getStaticCrtAllocator() )
 #endif
 
 // Assert

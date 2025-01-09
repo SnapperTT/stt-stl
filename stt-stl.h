@@ -34,7 +34,7 @@
 // - must be aware of static initialisation order issues
 // - (in C++ static initialisation order is not defined)
 #ifndef STT_STL_DEFAULT_ALLOCATOR
-	#define STT_STL_DEFAULT_ALLOCATOR ( &crt_allocator::m_static_crt_allocator )
+	#define STT_STL_DEFAULT_ALLOCATOR ( crt_allocator::getStaticCrtAllocator() )
 #endif
 
 // Assert
@@ -518,7 +518,8 @@ namespace stt
   class crt_allocator : public allocatorI
   {
   public:
-    static crt_allocator m_static_crt_allocator;
+    static crt_allocator * getStaticCrtAllocator ();
+    crt_allocator ();
     uint8_t * allocate (alloc_size_t const size) noexcept LZZ_OVERRIDE;
     void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept LZZ_OVERRIDE;
   };
@@ -565,18 +566,8 @@ namespace stt
 }
 namespace stt
 {
-  struct defaul_allocator_ctr
-  {
-    static allocatorI * defaultAllocator;
-  };
-}
-namespace stt
-{
-  void setDefaultAllocator (allocatorI * _alloc);
-}
-namespace stt
-{
-  allocatorI * getDefaultAllocator ();
+  LZZ_INLINE crt_allocator::crt_allocator ()
+                                       {}
 }
 namespace stt
 {
@@ -591,7 +582,7 @@ namespace stt
     : bump_allocator ()
                                                           {
 			bind(&buff[0], SIZE);
-			fallback = &crt_allocator::m_static_crt_allocator;
+			fallback = STT_STL_DEFAULT_ALLOCATOR ;
 			}
 }
 #undef LZZ_INLINE
@@ -629,7 +620,8 @@ namespace stt
 }
 namespace stt
 {
-  crt_allocator crt_allocator::m_static_crt_allocator;
+  crt_allocator * crt_allocator::getStaticCrtAllocator ()
+                                                              { static crt_allocator s; return &s; }
 }
 namespace stt
 {
@@ -721,20 +713,6 @@ namespace stt
 				}
 			return false;
 			}
-}
-namespace stt
-{
-  allocatorI * defaul_allocator_ctr::defaultAllocator = &crt_allocator::m_static_crt_allocator;
-}
-namespace stt
-{
-  void setDefaultAllocator (allocatorI * _alloc)
-                                                     { defaul_allocator_ctr::defaultAllocator = _alloc; }
-}
-namespace stt
-{
-  allocatorI * getDefaultAllocator ()
-                                          { return defaul_allocator_ctr::defaultAllocator; }
 }
 #undef LZZ_INLINE
 #undef LZZ_OVERRIDE
@@ -989,9 +967,7 @@ namespace stt
     void fill_or_destroy_elements (uint8_t * dst, storage_size_t const oldSize, storage_size_t const newSize);
     void copy_elements (uint8_t * dst, uint8_t const * src, storage_size_t const num_elements_or_bytes);
     void copy_elements_in_place (uint8_t * dst, uint8_t const * src, storage_size_t const num_elements_or_bytes);
-    void move_elements (uint8_t * dst, uint8_t * src, storage_size_t const num_elements_or_bytes);
     void move_elements_in_place (uint8_t * dst, uint8_t * src, storage_size_t const num_elements_or_bytes);
-    void fill_elements (uint8_t * dst, storage_size_t const num_elements_or_bytes);
     void fill_elements_in_place (uint8_t * dst, storage_size_t const num_elements_or_bytes);
     void destroy_elements ();
     void destroy_elements_impl ();
@@ -1011,7 +987,7 @@ namespace stt
   template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
   LZZ_INLINE void sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::init ()
                                    {
-			#if STT_STL_DEBUG
+			#ifdef STT_STL_DEBUG
 				#if STT_STL_DEBUG > 1
 					printf("construct sso_base: %p %s\n", this, __PRETTY_FUNCTION__);
 				#endif
@@ -1287,8 +1263,8 @@ namespace stt
 			move_elements_in_place(store2.ptr, &d.sso[0], local_size()/element_size());
 			store2.size = local_size();
 			
-			disableSsoFlag();
 			d.store = store2;
+			disableSsoFlag();
 			
 			//d.store.dbg_printf();
 			//dbg_dump();
@@ -1305,7 +1281,7 @@ namespace stt
 			STT_STL_ASSERT(!isAlwaysStore(), "always store check"); // do not deallocate if not null
 			#endif
 			storage store2 = d.store;
-			move_elements(&d.sso[0], store2.ptr, store2.size/element_size());
+			move_elements_in_place(&d.sso[0], store2.ptr, store2.size/element_size());
 			set_local_size(store2.size);
 			store2.deallocate();
 			}
@@ -1427,7 +1403,7 @@ namespace stt
 				return;
 				}
 			if (newSize > oldSize) {
-				fill_elements(dst, (newSize - oldSize)/element_size());
+				fill_elements_in_place(dst, (newSize - oldSize)/element_size());
 				}
 			else if (oldSize > newSize) {
 				const storage_size_t count = (oldSize - newSize)/element_size();
@@ -1465,36 +1441,13 @@ namespace stt
 namespace stt
 {
   template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
-  void sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::move_elements (uint8_t * dst, uint8_t * src, storage_size_t const num_elements_or_bytes)
-                                                                                                           {
-			// not in-place move
-			if constexpr (isPod())
-				stt_memcpy(dst, src, num_elements_or_bytes);
-			else 
-				objectMoveRange((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
-			}
-}
-namespace stt
-{
-  template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
   void sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::move_elements_in_place (uint8_t * dst, uint8_t * src, storage_size_t const num_elements_or_bytes)
                                                                                                                     {
-			// not in-place move
+			// use if dst is unintialised memory. Assigns dst with `new(dst[i]) T(std::move(src[i]))`
 			if constexpr (isPod())
 				stt_memcpy(dst, src, num_elements_or_bytes);
 			else 
 				objectMoveRangeInPlace((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
-			}
-}
-namespace stt
-{
-  template <unsigned int N, typename T, typename SSO_SIZE_T, bool IS_ALWAYS_STORE>
-  void sso_base <N, T, SSO_SIZE_T, IS_ALWAYS_STORE>::fill_elements (uint8_t * dst, storage_size_t const num_elements_or_bytes)
-                                                                                             {
-			if constexpr (isPod())
-				stt_memset(dst, 0, num_elements_or_bytes);
-			else 
-				objectFillRange((T*) dst, ((T*) dst) + num_elements_or_bytes);
 			}
 }
 namespace stt
@@ -2268,7 +2221,7 @@ protected:
 			// move this's sso data to a temp buffer
 			const storage_size_t lsz = sso.local_size();
 			uint8_t tmpBuff[sizeof(*this)];
-			sso.move_elements(&tmpBuff[0], &sso.d.sso[0], lsz / stride);
+			sso.move_elements_in_place(&tmpBuff[0], &sso.d.sso[0], lsz / stride); // we are copying into unitialised space so we must in-place move
 			
 			//printf("swap2_impl %s\n", __PRETTY_FUNCTION__);
 			//printf("swap2_impl lsz %i, stride %i\n", lsz, stride);
@@ -2283,13 +2236,13 @@ protected:
 			else {
 				//printf("swap2_impl path B\n");
 				const storage_size_t olsz = other.sso.local_size();
-				sso.move_elements(&sso.d.sso[0], &other.sso.d.sso[0], olsz / stride);
+				sso.move_elements_in_place(&sso.d.sso[0], &other.sso.d.sso[0], olsz / stride);
 				sso.set_local_size(olsz);
 				if constexpr (isString()) writeNullTerminator(&sso.d.sso[olsz]);
 				}
 				
 			// put the temp sso data into temp and switch it to sso mode
-			other.sso.move_elements(&other.sso.d.sso[0], &tmpBuff[0], lsz / stride);
+			other.sso.move_elements_in_place(&other.sso.d.sso[0], &tmpBuff[0], lsz / stride);
 			other.sso.set_local_size(lsz);
 			if constexpr (isString()) other.writeNullTerminator(&other.sso.d.sso[lsz]);
 			}

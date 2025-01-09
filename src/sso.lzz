@@ -35,7 +35,7 @@ namespace stt {
 		inline sso_base() { init(); }
 		
 		inline void init() {
-			#if STT_STL_DEBUG
+			#ifdef STT_STL_DEBUG
 				#if STT_STL_DEBUG > 1
 					printf("construct sso_base: %p %s\n", this, __PRETTY_FUNCTION__);
 				#endif
@@ -201,8 +201,8 @@ namespace stt {
 			move_elements_in_place(store2.ptr, &d.sso[0], local_size()/element_size());
 			store2.size = local_size();
 			
-			disableSsoFlag();
 			d.store = store2;
+			disableSsoFlag();
 			
 			//d.store.dbg_printf();
 			//dbg_dump();
@@ -215,7 +215,7 @@ namespace stt {
 			STT_STL_ASSERT(!isAlwaysStore(), "always store check"); // do not deallocate if not null
 			#endif
 			storage store2 = d.store;
-			move_elements(&d.sso[0], store2.ptr, store2.size/element_size());
+			move_elements_in_place(&d.sso[0], store2.ptr, store2.size/element_size());
 			set_local_size(store2.size);
 			store2.deallocate();
 			}
@@ -313,7 +313,7 @@ namespace stt {
 				return;
 				}
 			if (newSize > oldSize) {
-				fill_elements(dst, (newSize - oldSize)/element_size());
+				fill_elements_in_place(dst, (newSize - oldSize)/element_size());
 				}
 			else if (oldSize > newSize) {
 				const storage_size_t count = (oldSize - newSize)/element_size();
@@ -341,28 +341,28 @@ namespace stt {
 				objectCopyRangeInPlace((T*) dst, (const T*) src, ((const T*) src) + num_elements_or_bytes);
 			}
 		
-		void move_elements(uint8_t* dst, uint8_t* src, const storage_size_t num_elements_or_bytes) {
-			// not in-place move
-			if constexpr (isPod())
-				stt_memcpy(dst, src, num_elements_or_bytes);
-			else 
-				objectMoveRange((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
-			}
+		//void move_elements(uint8_t* dst, uint8_t* src, const storage_size_t num_elements_or_bytes) {
+		//	// not in-place move. Assigns dst with `dst[i] = std::move(src[i])`
+		//	if constexpr (isPod())
+		//		stt_memcpy(dst, src, num_elements_or_bytes);
+		//	else 
+		//		objectMoveRange((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
+		//	}
 			
 		void move_elements_in_place(uint8_t* dst, uint8_t* src, const storage_size_t num_elements_or_bytes) {
-			// not in-place move
+			// use if dst is unintialised memory. Assigns dst with `new(dst[i]) T(std::move(src[i]))`
 			if constexpr (isPod())
 				stt_memcpy(dst, src, num_elements_or_bytes);
 			else 
 				objectMoveRangeInPlace((T*) dst, (T*) src, ((T*) src) + num_elements_or_bytes);
 			}
 			
-		void fill_elements(uint8_t* dst, const storage_size_t num_elements_or_bytes) {
-			if constexpr (isPod())
-				stt_memset(dst, 0, num_elements_or_bytes);
-			else 
-				objectFillRange((T*) dst, ((T*) dst) + num_elements_or_bytes);
-			}
+		//void fill_elements(uint8_t* dst, const storage_size_t num_elements_or_bytes) {
+		//	if constexpr (isPod())
+		//		stt_memset(dst, 0, num_elements_or_bytes);
+		//	else 
+		//		objectFillRange((T*) dst, ((T*) dst) + num_elements_or_bytes);
+		//	}
 			
 		void fill_elements_in_place(uint8_t* dst, const storage_size_t num_elements_or_bytes) {
 			if constexpr (isPod())

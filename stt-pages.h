@@ -2406,7 +2406,7 @@ namespace stt
 {
   template <typename P>
   pageQueueBumpStorage <P>::pageQueueBumpStorage ()
-                                       { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
+                                        { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
 }
 namespace stt
 {
