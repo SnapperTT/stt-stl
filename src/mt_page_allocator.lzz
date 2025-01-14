@@ -16,7 +16,7 @@ public:
 		ThreadSafePageAllocatorImpl::get().initThreadLocalPools();
 		}
 	static void cleanupThreadLocalPools() {
-		// MUST be called on thread end!
+		// MUST be called on thread end! Destroys the thread_local pool object
 		ThreadSafePageAllocatorImpl::get().cleanupThreadLocalPools();
 		}
 	static uint32_t cleanupBackendPools() {

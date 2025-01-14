@@ -5,14 +5,14 @@ private:								\
 public:	
 
 #hdr
-#define STT_PAGEQUEUEBUMPSTORAGE_MVSEM pageQueueBumpStorage&&
+#define STT_PAGEQUEUEBUMPALLOCATOR_MVSEM pageQueueBumpAllocaor&&
 #end
 
 #src
 #end
 
 namespace stt {
-	struct pageQueueBumpStorageOverflowCtr {
+	struct pageQueueBumpAllocatorOverflowCtr {
 		// Purpose: for when you put strings that are too big to fit into P
 		// into a pageQueueBumpStorage<P>.
 		// Note: if you never push_back() then by default pageQueue<..> will never allocate
@@ -28,14 +28,14 @@ namespace stt {
 				}
 			return r->to_string_view();
 			}
-		void swap(pageQueueBumpStorageOverflowCtr & other) { overflowStore.swap(other.overflowStore); }
+		void swap(pageQueueBumpAllocatorOverflowCtr & other) { overflowStore.swap(other.overflowStore); }
 		void clear() { overflowStore.clear(); }
 		};
 			
 	
 	
 	template<typename P>
-	struct pageQueueBumpStorage : public allocatorI {
+	struct pageQueueBumpAllocaor : public allocatorI {
 		// Purpose: storage for objects of a similar lifetime, such as interned strings.
 		// Each string must be smaller than a page in size otherwise it'll go into the overflow container, if defined
 		// This is one-way storage - each push_back returns a string_view and each store cannot be resized or moved.
@@ -46,21 +46,25 @@ namespace stt {
 		// note that you can push_back a string with a null pointer but
 		// non-zero size to reserve but not write a block of memory
 		//
+		// You can either push_back (dumb allocation at end of queue) or push_back_compact
+		// which will try to fill the end of unfilled pages. If using push_back_compact in a loop
+		// you can supply a default-constructed pushBackLookupHint object to it to cache lookups
+		// and speed up insertion
 		typedef uint16_t writeSizeType; // writeSizeType(-1) is the maximum element size
 		typedef pageQueueImpl<char,P> pqType;
 		
 		pqType store;
-		pageQueueBumpStorageOverflowCtr* overflow; // (optional) storage for strings that are too big to fit in a page
+		pageQueueBumpAllocatorOverflowCtr* overflow; // (optional) storage for strings that are too big to fit in a page
 		uint8_t overflowMode; // how to handle overflows if overflow is null
 		
 		static const uint8_t OVERFLOW_MODE_ABORT = 0;
 		static const uint8_t OVERFLOW_MODE_TRUNCATE = 1;
 		
 		
-		pageQueueBumpStorage()  { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
-		~pageQueueBumpStorage() { if (overflow) overflow->clear(); }
+		pageQueueBumpAllocaor()  { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
+		~pageQueueBumpAllocaor() { if (overflow) overflow->clear(); }
 		
-		void move_impl(STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) {
+		void move_impl(STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) {
 			store.move_impl(std::move(store.other));
 			swapOverflow(other.overflow);
 			overflowMode = other.overflowMode;
@@ -68,12 +72,12 @@ namespace stt {
 		
 		// pageQueues cannot be copied, only moved
 		// move assign and move construct are needed for std::swap auto implementation
-		inline pageQueueBumpStorage(STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) { move_impl(other); }
-		inline pageQueueBumpStorage<P>& operator= (STT_PAGEQUEUEBUMPSTORAGE_MVSEM other) { move_impl(other); return *this; }
-		STT_STT_NOCOPY(pageQueueBumpStorage)
+		inline pageQueueBumpAllocaor(STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) { move_impl(other); }
+		inline pageQueueBumpAllocaor<P>& operator= (STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) { move_impl(other); return *this; }
+		STT_STT_NOCOPY(pageQueueBumpAllocaor)
 		
 		
-		void swapOverflow(pageQueueBumpStorageOverflowCtr * otherOverlow) {
+		void swapOverflow(pageQueueBumpAllocatorOverflowCtr * otherOverlow) {
 			if ((!overflow) && (!otherOverlow)) return;
 			if (overflow && otherOverlow) {
 				overflow->swap(*otherOverlow);
@@ -149,7 +153,7 @@ namespace stt {
 			// usage: 1. `push_back_compact(str, size);` or
 			//        2. `pushBackLookupHint hint; for (each_string) { push_back_compact(str, size, &hint); }`
 			// if hint is non-null then start searching from (*hint). This optimises for the case in a loop where a
-			// big alloc causes a large gap in the middle of the list that can be filled with small 
+			// big alloc causes a large gap in the middle of the list that can be filled with small allocations
 			if (!size) return stt::string_view(NULL, 0);
 			const uint32_t wantsSize = size + sizeof(writeSizeType);
 			
@@ -182,7 +186,7 @@ namespace stt {
 			return push_back(str, size);
 			}
 		
-		inline void swap(pageQueueBumpStorage& other) { store.swap(other.store); swapOverflow(other.overflow); }
+		inline void swap(pageQueueBumpAllocaor& other) { store.swap(other.store); swapOverflow(other.overflow); }
 		inline void clear() { store.clear(); if (overflow) overflow->clear(); }
 		inline void clearKeepingFirstPage() { store.clearKeepingFirstPage(); if (overflow) overflow->clear(); }
 		inline uint32_t remainingBytesIn(P* t) const { return store.pageLocalCapacity() - t->ph.localSize; }

@@ -1,0 +1,415 @@
+
+
+//
+// 
+// bitmap_indexed_page_queue:
+// 
+// [ dictionary1 ] [ payload1 ---------------------- ],
+// [ payload2 -------------------------------------- ],
+// [ payload3 -------------------------------------- ],
+// (...)
+// [ dictionary2 ] [ payload40 --------------------- ],
+// etc
+//
+// dictionary:
+// [ header ][NEXT][ entry1, entry2, ... ]
+//
+// dictionary entry:
+// [ pointer to payload ][ useMask1, useMask2, ... ]
+// each useMask is a uint64 bitmap corresponding
+// 
+// ADVANTAGES:
+//		- Small data case - only use 1 page for both dictionary and payload
+//		- Can itterate over large data sets without loading lots of pages
+//		
+// DISADVANTAGES: 
+//		- complicated implmentation
+//
+// ALTERNATIVE:
+// [ mask ] [ payload1 ---------------------- ],
+// [ mask ] [ payload2 ---------------------- ],
+// [ mask ] [ payload3 ---------------------- ],
+// [ mask ] [ payload4 ---------------------- ],
+//
+// ADVANTAGES:
+//		- Simple
+//
+// DISADVANTAGES
+//		- itteration for first free slot will be very slow
+#hdr
+
+#end
+
+#src
+
+#end
+
+#if 0
+struct simpleBitmapPage {
+	pageHeader* p;
+
+	inline void addrAt (const uint32_t idx, const uint32_t szofT) {
+		return ((uint8_t*) p->toPayload())[idx*szofT];
+		}
+		
+	need - data size
+	need - bitmap
+	
+	void isSlotFree
+	
+	}
+
+
+
+
+
+
+
+
+
+namespace stt {
+	
+struct pageBitmapHeader {
+	pageHeader* p;
+	uint64_t _useMaskFirst; // actually an array, we deliberately overflow
+	
+	inline void* data() { return p->data() }
+	inline uint64_t* useMaskArr() { return &_useMaskFirst; }
+	inline const uint64_t* useMaskArrC() const { return &_useMaskFirst; }
+	inline static STT_CONSTEXPR__uint64_t lastFullUseMask(const uint32_t size) {
+		// Returns the full mask for a partially used bitmap
+		//uint32_t rem = 64 - (size & 63); // x % y == x & (y -1) if y = 2^k
+		//return (uint64_t(-1) << rem) >> rem; // overflow = undefined behaviour
+		//return uint64_t(-(rem != 0)) & (uint64_t(-1) >> (64 - rem));
+		
+		uint32_t rem = (size & 63); // x % y == x & (y -1) if y = 2^k
+		return (uint64_t(1) << rem) -1;
+		//uint64_t rmask = (uint64_t(1) << rem);
+		//return (rmask - 1) | rmask;
+		}
+		
+	inline void setBit(const uint32_t idx) {
+		uint32_t maskIdx = idx >> 6; // >> 6 == /64
+		uint32_t bitIdx = idx & 63;
+		useMaskArr()[maskIdx] |= (uint64_t(1) << bitIdx);
+		}
+		
+	inline void clearBit(const uint32_t idx) {
+		uint32_t maskIdx = idx >> 6;
+		uint32_t bitIdx = idx & 63;
+		useMaskArr()[maskIdx] &= ~(uint64_t(1) << bitIdx);
+		}
+		
+	inline uint64_t getBit(const uint32_t idx) const {
+		uint32_t maskIdx = idx >> 6;
+		uint32_t bitIdx = idx & 63;
+		return useMaskArrC()[maskIdx] & (uint64_t(1) << bitIdx);
+		}
+		
+	static void static_asserts() {
+		static_assert((uint64_t(1) << 63) == 9223372036854775808ull); 
+		static_assert ((65 & 63) == 1);
+		static_assert ((64 & 63) == 0);
+		
+		static_assert(lastFullUseMask(63) == (uint64_t(-1) & ~(uint64_t(1) << 63)));
+		
+		static_assert(lastFullUseMask(64) == 0);
+		static_assert(lastFullUseMask(65) == 1);
+		static_assert(lastFullUseMask(5) == 0b11111);
+		static_assert(lastFullUseMask(69) == 0b11111);
+		static_assert(lastFullUseMask(0) == 0);
+		static_assert(lastFullUseMask(1) == 1);
+		}
+	};
+	
+struct pageBitampDictionaryHeader {
+	uint16_t payloadOffset; // in bytes
+	uint8_t nDictionaryEntries;	// number of used entries in this dictionary
+	uint8_t dicionaryCapacity;	// number of entries this dictionary can store. Note that 255*16 (minumum sizeof pageBitmapHeader = 16) = 4080 = sizeof(pageU) and this can index 16320 items.
+	uint16_t maxElementsPerPage; // how many elements in each page (MAX!)
+	uint16_t elementSize; // sizeof(T)
+	pageBitampDictionaryHeader* next; // if this dictionary is full then move to the next dict
+	pageBitmapHeader _firstEntry;
+	
+	// derived parameters
+	inline uint32_t bitmapSize () const { return (maxElementsPerPage + 63) / 64; } // ceil(maxElements/64)
+	inline uint32_t entrySize () const { return bitmapSize()*sizeof(uint64_t) + sizeof(pageHeader*); } // size in bytes of a dictionary entry
+	inline uint32_t capacityOfPageContainingDictionary() const { return maxElementsPerPage - (payloadOffset/elementSize); }
+	uint32_t totalElementCapacity() const {
+		// total amount of elements that can be indexed by this dictionary (including the page that holds it)
+		return uint32_t(dicionaryCapacity)*maxElementsPerPage + capacityOfPageContainingDictionary();
+		}
+	
+	// the arena is the memory directly after the header, we diliberately overflow
+		
+	pageBitampDictionaryHeader() {
+		payloadOffset = sizeof(this);
+		nDictionaryEntries = 0;
+		dicionaryCapacity = 0;
+		maxElementsPerPage = 0;
+		elementSize = 0;
+		next = NULL;
+		
+		// store this 2 uint64_ts before the real payload
+		static_assert(sizeof(*this) == 16 + sizeof(pageBitmapHeader));
+		}
+	
+	
+	static inline uint64_t maxVal (uint32_t _sizeof) {
+		return (uint64_t(1) << _sizeof) -1;
+		}
+	
+	void init(const uint32_t wantsSizeInBytes, const uint32_t _pageSize, const uint32_t _elementSize) {
+		// create as many entires as possible to fill wantsSizeInBytes
+		// create multiple dictionaries if there are more than 255 elements
+		
+		uint32_t rawMaxElements = _pageSize/_elementSize; // how many elements can be stored in a blank page?
+		STT_STL_ASSERT (_elementSize <= 65355, "element size too large");
+		STT_STL_ASSERT (rawMaxElements <= 65355, "page is too large for this data type. If you do not mind wasting space you can disable this assert");
+		if (rawMaxElements > 65355)
+			rawMaxElements = 65355;
+		
+		STT_STL_ASSERT (rawMaxElements > 0, "needs at least 1 element per page (otherwise the math breaks)");
+		maxElementsPerPage = rawMaxElements;
+		
+		STT_STL_ASSERT(bitmapSize() >= 0, "???"); // should be impossible
+		
+		
+		const uint32_t entrySizeRaw = entrySize();
+		//STT_ASSERT(entrySizeRaw < 255);
+		//entrySize = entrySizeRaw;
+		
+		dicionaryCapacity = wantsSizeInBytes / entrySizeRaw;
+		
+		const uint32_t payloadOffsetRaw = (dicionaryCapacity*entrySizeRaw);
+		STT_STL_ASSERT(payloadOffsetRaw <= 65355, "dict is too big for size memeber (uint16_t)");
+		payloadOffset = payloadOffsetRaw;
+		
+		// initialise the dictionary
+		for (uint32_t i = 0; i < diction)
+		}
+		
+	inline pageBitmapHeader* entryArray() { return &_firstEntry; }
+	
+	void addNewEntry() {
+		//
+		inserts an entry at the end
+		}
+	
+	void firstFreeSlot(pageBitmapHeader** dictEntryOut, uint32_t& localIdxOut) {
+		// returns the index of the first free slot and the dictonary entry containing the page
+		// dictEntryOut->p => page
+		// localIdxOut - index in that page
+		localIdxOut = -1; // not found
+		*dictEntryOut = NULL;
+		
+		pageBitmapHeader* arr = entryArray();
+		const uint32_t bsz = bitmapSize();
+		const uint64_t lastUseMask = pageBitmapHeader::lastFullUseMask(maxElementsPerPage);
+		
+		
+		for (uint32_t i = 0; i < nDictionaryEntries; ++i) {
+			uint64_t* useMaskArr = arr[i].useMaskArr();
+			uint64_t localMaxElements = maxElementsPerPage;
+			uint64_t fullUseMask = -1;
+			if (i == 0) {
+				localMaxElements = capacityOfPageContainingDictionary();
+				fullUseMask = pageBitmapHeader::lastFullUseMask(localMaxElements);
+				}
+			
+			for (uint32_t j = 0; j < bsz; ++j) {
+				if (j == bsz-1)
+					fullUseMask = lastUseMask;
+				if (useMaskArr[j] == fullUseMask)
+					continue; // is full
+				localIdxOut = __builtin_ffsll(useMaskArr[j]) - 1;
+				*dictEntryOut = &arr[i];
+				return;
+				}
+			}
+		if (next) return next->firstFreeSlot(dictEntryOut, localIdxOut);
+		return;
+		}
+	
+	pageBitampDictionaryHeader* getEnd() {
+		pageBitampDictionaryHeader* r = this;
+		while (r->next) r = r->next;
+		return r;
+		}
+		
+	};
+
+struct bitmapIndexedPageQueueCommon {
+	pageHeader* head;
+	
+	bitmapIndexedPageQueueCommon : head(NULL) {}
+	
+	void clear() {
+		deleteLinkedList(head);
+		head = NULL;
+		}
+	
+	static inline pageBitampDictionaryHeader* getDictionary(pageHeader* p) {
+		return (pageBitampDictionaryHeader*) &p->userData[2];
+		}
+	static void placementAllocateDictionary(pageHeader*p) {
+		//pageBitampDictionaryHeader* d = 
+		new (&p->userData[2]) pageBitampDictionaryHeader();
+		}
+		
+	static void initDictionary(pageHeader*p, const uint32_t wantsSizeInBytes, const uint32_t _pageSize, const uint32_t _elementSize) {
+		getDictionary(p)->init(wantsSizeInBytes, pageSize, elementSize);
+		}
+		
+	void* getGenFreeSlot () {
+		// gets the first free slot
+		// if no slots are free then insert a new page and continue
+		pageBitmapHeader* pbh;
+		uint32_t lidx;
+		getFirstFreeSlot(phb, idx);
+		
+		if (pbh) {
+			return pbh->
+			}
+		
+		if (!ptr)
+			extendTail();
+		}
+		
+	
+		
+	
+		
+	};
+	
+}
+
+/*
+
+template<typename T>
+struct optional {
+	using value_type = T;
+	bool has_value;
+	T* addr;
+	
+	inline T& operator*() { return *addr; }
+	inline T& operator->() { return *addr; }
+	inline T& value_or(const T& other) { return has_value ? *addr : other; } 
+	};
+
+template<typename T, typename P>
+struct bitmapIndexedPageQueue {
+public:
+	// linked list of pages with a dictionary
+	// that stores a bitmap noting what elements are valid and which are not
+	//
+	// Supports random lookup and erase and inserting at end or first free slot
+	//
+	// A dictionary is a quater page or 1000 bytes in size, whichever is smaller
+	// if the dictionary gets full then a pointer is made to another page that has
+	// a dictionary
+	bitmapIndexedPageQueueCommon store;
+	
+	static constexpr uint32_t pageElementsCapacity() {
+		return (sizeof(P) - P::headerSize())/sizeof(T);
+		}
+		
+	void push_back() {
+		// inserts at the end of the list
+		// get the end dictionaly
+		d = store.getEnd()
+		// now append at the end
+		d = store.
+		}
+	
+	void push_back_compact() {
+		// inserts in the first free slot
+		
+		}
+		
+	optional<T> at(const uint32_t slotId) {
+		optional<T> r;
+		r.has_value = false;
+		r.addr = NULL;
+		// Do the lookup here
+			sdafasedf
+		return r;
+		}
+		
+	void initDictionary(const uint32_t wantsSizeInBytes = 1000) {
+		STT_STL_ASSERT (!head); // head/dict is already intialised!
+		STT_STL_ASSERT (wantsSizeInBytes < P::getSize());
+		
+		}
+			
+	getTotalSize() { return head
+	getTotalCapacity();
+	
+	bitmapIndexedPageQueue() : head(NULL) {}
+		sizeof(P)/sizeof(N)
+	
+	
+	T* getFirstFreeSlot() {
+		
+		}
+		
+	void addPage() {
+		// allocate page
+		callback
+		
+		// create dictionary if needed
+		
+		// update latest dictionary
+		
+		// append to end of linked list
+		}
+	
+	pageBitampDictionaryHeader* getDictionaryEnd() {
+		if (!head) return NULL;
+		
+		}
+	
+	void addPage(pageHeader* p) {
+		head
+		}
+	
+	void push_back_end() {
+		// appends to end
+		}
+		
+	void push_back_compact() {
+		// appends to first free slot
+		}
+		
+	void erase(slotIndex) { }
+	
+	T* lookupBySlot()
+	T* lookupByIndex
+	
+	bitmap getBitmap
+	
+	void createInitialPage() {
+		STT_ASSERT(!head);
+		head = allocate_page();
+		}
+		
+	void convertToBigDict
+	};
+	
+	
+	
+ PAGE[]
+	offset
+
+pageBitmap {
+	
+	}
+
+// page[0]->
+
+// page[0]->add, indicies min, indices max
+// page[1]->...
+
+*/
+
+#endif

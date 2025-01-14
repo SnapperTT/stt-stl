@@ -62,14 +62,15 @@ PA->pageAlloc.getMinMaxFreelistPages(requestAmount, maxCacheSize); // reading va
 PA->pageAlloc.returnAllPages(); // flush everything now
 ```
 
-You can also flush all pages to the global pool with. Flushing pages is a series of lock-free atomic operation.
+You can flush the global pool back to system memory with `stt::ThreadSafePageAllocator::cleanupBackendPools()`. Flushing pages is a series of lock-free atomic operation.
 
 Finally you can change the (minimum) batch size for the `BackendPagePool` by the `BackendPagePool::batchSize` variable. The backend is never flushed back to system memory by default, allocated pages live forever (by design we are trying to avoid system `malloc`/`free` by recycling pages). But they can be forced flushed back to system memory by calling `BackendPagePool::freeAllToSystem()` 
 
 
 ## Containers
 * pageQueue<T> - Like a `std::vector` but discontigious and does not allow random access. You can `push_back` and use ranged itteration to access. 
-* pageBump - A basic bump allocator, designed to be a bucket for objects with the same or similar lifetime
+* pageQueueBumpStorage<P> - A basic bump allocator, designed to be a bucket for objects with the same or similar lifetime. (This is perfect for interned strings)! P here is the page type (regular or jumbo). This also has an overflow mechanisim to store objects that are individually too big to fit in the allocator (these will use the STT_STL_DEFAULT_ALLOCATOR) 
+
 
 ## Debugging
 You can define `STT_PASSTHROUGH_TL_PAGE_ALLOCATOR` or `STT_PASSTHROUGH_TL_PAGE_ALLOCATOR_BACKEND` to bypass the thread_local or backend page pools and just call `new`/`delete` directly
