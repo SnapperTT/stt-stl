@@ -28,9 +28,9 @@ int main (int argc, char ** argv) {
 	// allocate and destroy some stuff
 	stt::pageU* p = stt::ThreadSafePageAllocator::allocPage();
 	stt::pageU* pp[13];
-	stt::ThreadSafePageAllocator::allocPages(&pp[0], 13);
+	stt::ThreadSafePageAllocator::allocPages(&pp[0], 13); // bulk alloc
 	stt::ThreadSafePageAllocator::freePage(p);
-	stt::ThreadSafePageAllocator::freePages(&pp[0], 13);
+	stt::ThreadSafePageAllocator::freePages(&pp[0], 13); // bulk free
 	
 	// test a page queue
 	{
@@ -54,13 +54,13 @@ int main (int argc, char ** argv) {
 	// test a page-based allocator and interning data within
 	{
 		stt::string24 testStr = "The quick brown fox jumped over the lazy log 1234567890abcdefghijklmnopqrstuvwxyz";
-		stt::pageQueueBumpStorage<stt::pageU> store;
+		stt::pageQueueBumpAllocaor<stt::pageU> store;
 		
 		stt::vector24<stt::string_view> svs;
 		svs.setAllocator(&store);
 		
 		// using a hint can speed up push_back_compact in a loop
-		stt::pageQueueBumpStorage<stt::pageU>::pushBackLookupHint mHint;
+		stt::pageQueueBumpAllocaor<stt::pageU>::pushBackLookupHint mHint;
 		
 		for (uint i = 0; i < 100; ++i) {
 			svs.push_back(store.push_back_compact(testStr, &mHint));
@@ -75,7 +75,7 @@ int main (int argc, char ** argv) {
 	// Cleanup - 
 	// If you are exiting the program you can just ::exit() and forgo cleanup
 	
-	stt::ThreadSafePageAllocator::cleanupThreadLocalPools(); // must be called at the end of a thread, this call cleans up *this* thread's pool
+	stt::ThreadSafePageAllocator::cleanupThreadLocalPools(); // must be called at the end of a thread, this call cleans up *this* thread's pool and destroys local storage
 	stt::ThreadSafePageAllocator::cleanupBackendPools(); // must be called on program shutdown to free all pages in the backend pool to system memory
 	return 1;
 	}
