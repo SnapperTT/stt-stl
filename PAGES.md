@@ -25,7 +25,7 @@ If an allocation is permanent than a fancy allocation system is not needed - jus
 
 
 ## Pages
-I supply two kinds of pages with this library - regular (about 4k in size) and jumbo (64k). The reason is that I want to force you to use fixed size blocks of a known size and live with discontigious data. You can configure 
+I supply two kinds of pages with this library - regular (about 4k in size) and jumbo (64k). The reason is that I want to force you to use fixed size blocks of a known size and live with discontigious data. 
 
 You can change the size of the pages by defining the `STT_PAGE_SIZE` and `STT_JUMBO_PAGE_SIZE` macros.
 

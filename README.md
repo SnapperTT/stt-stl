@@ -41,7 +41,6 @@ C++17
 * Standardise sizeof(string) across platforms and compilers
 * Minimise the use of templates to keep compile times and bloat low (all containers wrap arrays of `uint8_t` under the hood)
 * Seperate memory management from container type
-* When using heap use aligned allocations by default
 
 
 ## Notes:
@@ -66,9 +65,6 @@ Hello world example:
 using string24 = stt::string_base<24>; // rename your string type to preserve your sanity
 
 int main(int argc, char** argv) {
-	static stt::crt_allocator alloc;  // wraps malloc & free
-	stt::setDefaultAllocator(&alloc); // must be called before creating any objects!
-	
 	// this is a bit of a contrived example as the test string will fiit withing sso
 	stt::string24 h = "hello world!"
 	std::cout << h << std::endl;
@@ -103,7 +99,7 @@ using small_vector8 = stt::small_vector<T, 8, uint16_t>; // small_vector that st
 ## Allocators
 * `stt::allocatorI`: Interface, defines `allocate(sz)`, `deallocate(ptr, sz)` and `try_realloc(ptr, oldSize, newSize)`
 * `try_realloc` does a simple check to see if the current allocation can be made bigger
-* `STT_STL_DEFAULT_ALLOCATOR` macro is used to set the default allocator. It's default value is `(&stt::crt_allocator::m_static_crt_allocator)` which basically wraps malloc/free. If you wish to redefine consider the following:
+* `STT_STL_DEFAULT_ALLOCATOR` macro is used to set the default allocator. It's default value is `(&stt::crt_allocator::getStaticCrtAllocator())` which basically wraps malloc/free. If you wish to redefine consider the following:
 ```C++
 // default allocator macro
 // - must be a pointer to a stt::allocatorI
@@ -123,20 +119,20 @@ See config.lzz
 You can use a stack buffer to do temporary string manipulations
 
 ```C++
-stt::string getTemp() {
+stt::string24 getTemp() {
 	// this gives 之 bytes of stack memory for manipulation with a bump allocator
 	// if this runs out then it fallsback to stt::allocatorI::default_allocator (which wraps new[] and delete[])
 	stt::auto_bump_allocator<4096> alloc;
 
 	string24 temp(&alloc);	// note that assigning a custom allocator will disable sso for a string
-							// the container bound to it must be destroyed after 
+							// the container bound to it must be destroyed after destroying the string
 	
 	// do some work
 	temp = "foo";
 	temp += " bar zam";
 	
 	// Copy into either sso or automatic heap storage
-	string24 result = temp; // no allocator defined?  use `stt::allocatorI::default_allocator` internally
+	string24 result = temp; // no allocator defined?  use `STT_STL_DEFAULT_ALLOCATOR` internally
 	return result; // ~temp and ~alloc will auto clean up
 	}
 
