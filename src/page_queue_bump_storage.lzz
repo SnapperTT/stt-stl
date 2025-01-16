@@ -5,7 +5,7 @@ private:								\
 public:	
 
 #hdr
-#define STT_PAGEQUEUEBUMPALLOCATOR_MVSEM pageQueueBumpAllocaor&&
+#define STT_PAGEQUEUEBUMPALLOCATOR_MVSEM pageQueueBumpAllocator&&
 #end
 
 #src
@@ -35,7 +35,7 @@ namespace stt {
 	
 	
 	template<typename P>
-	struct pageQueueBumpAllocaor : public allocatorI {
+	struct pageQueueBumpAllocator : public allocatorI {
 		// Purpose: storage for objects of a similar lifetime, such as interned strings.
 		// Each string must be smaller than a page in size otherwise it'll go into the overflow container, if defined
 		// This is one-way storage - each push_back returns a string_view and each store cannot be resized or moved.
@@ -61,8 +61,8 @@ namespace stt {
 		static const uint8_t OVERFLOW_MODE_TRUNCATE = 1;
 		
 		
-		pageQueueBumpAllocaor()  { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
-		~pageQueueBumpAllocaor() { if (overflow) overflow->clear(); }
+		pageQueueBumpAllocator()  { overflow = NULL; overflowMode = OVERFLOW_MODE_ABORT; }
+		~pageQueueBumpAllocator() { if (overflow) overflow->clear(); }
 		
 		void move_impl(STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) {
 			store.move_impl(std::move(store.other));
@@ -72,9 +72,9 @@ namespace stt {
 		
 		// pageQueues cannot be copied, only moved
 		// move assign and move construct are needed for std::swap auto implementation
-		inline pageQueueBumpAllocaor(STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) { move_impl(other); }
-		inline pageQueueBumpAllocaor<P>& operator= (STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) { move_impl(other); return *this; }
-		STT_STT_NOCOPY(pageQueueBumpAllocaor)
+		inline pageQueueBumpAllocator(STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) { move_impl(other); }
+		inline pageQueueBumpAllocator<P>& operator= (STT_PAGEQUEUEBUMPALLOCATOR_MVSEM other) { move_impl(other); return *this; }
+		STT_STT_NOCOPY(pageQueueBumpAllocator)
 		
 		
 		void swapOverflow(pageQueueBumpAllocatorOverflowCtr * otherOverlow) {
@@ -186,7 +186,7 @@ namespace stt {
 			return push_back(str, size);
 			}
 		
-		inline void swap(pageQueueBumpAllocaor& other) { store.swap(other.store); swapOverflow(other.overflow); }
+		inline void swap(pageQueueBumpAllocator& other) { store.swap(other.store); swapOverflow(other.overflow); }
 		inline void clear() { store.clear(); if (overflow) overflow->clear(); }
 		inline void clearKeepingFirstPage() { store.clearKeepingFirstPage(); if (overflow) overflow->clear(); }
 		inline uint32_t remainingBytesIn(P* t) const { return store.pageLocalCapacity() - t->ph.localSize; }
