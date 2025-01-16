@@ -71,13 +71,13 @@ int main (int argc, char * * argv)
 	// test a page-based allocator and interning data within
 	{
 		stt::string24 testStr = "The quick brown fox jumped over the lazy log 1234567890abcdefghijklmnopqrstuvwxyz";
-		stt::pageQueueBumpAllocaor<stt::pageU> store;
+		stt::pageQueueBumpAllocator<stt::pageU> store;
 		
 		stt::vector24<stt::string_view> svs;
 		svs.setAllocator(&store);
 		
 		// using a hint can speed up push_back_compact in a loop
-		stt::pageQueueBumpAllocaor<stt::pageU>::pushBackLookupHint mHint;
+		stt::pageQueueBumpAllocator<stt::pageU>::pushBackLookupHint mHint;
 		
 		for (uint i = 0; i < 100; ++i) {
 			svs.push_back(store.push_back_compact(testStr, &mHint));
