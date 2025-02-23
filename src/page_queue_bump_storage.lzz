@@ -189,7 +189,23 @@ namespace stt {
 		inline void swap(pageQueueBumpAllocator& other) { store.swap(other.store); swapOverflow(other.overflow); }
 		inline void clear() { store.clear(); if (overflow) overflow->clear(); }
 		inline void clearKeepingFirstPage() { store.clearKeepingFirstPage(); if (overflow) overflow->clear(); }
-		inline uint32_t remainingBytesIn(P* t) const { return store.pageLocalCapacity() - t->ph.localSize; }
+		inline static uint32_t remainingBytesIn(P* t) { return pqType::pageLocalCapacity() - t->ph.localSize; }
+		
+		inline void calcualteUsage(uint32_t & nBytesOut, uint32_t & nPagesOut) const {
+			calcualteUsageStatic(store.head, nBytesOut, nPagesOut);
+			}
+			
+		static void calcualteUsageStatic(P* head, uint32_t & nBytesOut, uint32_t & nPagesOut) {
+			nBytesOut = 0;
+			nPagesOut = 0;
+			
+			P* page = head;
+			while (page) {
+				nPagesOut++;
+				nBytesOut += page->ph.localSize;
+				page = (P*) page->ph.next;
+				}
+			}
 		inline static STT_CONSTEXPR__uint32_t maxWriteSize() {
 			 // max size that can be stored without overflow
 			return ((writeSizeType(-1) > pqType::pageLocalCapacity()) ? writeSizeType(-1) : pqType::pageLocalCapacity()) - sizeof(writeSizeType);

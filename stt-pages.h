@@ -2387,7 +2387,9 @@ namespace stt
     void swap (pageQueueBumpAllocator & other);
     void clear ();
     void clearKeepingFirstPage ();
-    uint32_t remainingBytesIn (P * t) const;
+    static uint32_t remainingBytesIn (P * t);
+    void calcualteUsage (uint32_t & nBytesOut, uint32_t & nPagesOut) const;
+    static void calcualteUsageStatic (P * head, uint32_t & nBytesOut, uint32_t & nPagesOut);
     static constexpr uint32_t maxWriteSize ();
     static string_view writeBufferRaw (P * page, char const * str, writeSizeType const size);
   };
@@ -2607,8 +2609,32 @@ namespace stt
 namespace stt
 {
   template <typename P>
-  LZZ_INLINE uint32_t pageQueueBumpAllocator <P>::remainingBytesIn (P * t) const
-                                                             { return store.pageLocalCapacity() - t->ph.localSize; }
+  LZZ_INLINE uint32_t pageQueueBumpAllocator <P>::remainingBytesIn (P * t)
+                                                              { return pqType::pageLocalCapacity() - t->ph.localSize; }
+}
+namespace stt
+{
+  template <typename P>
+  LZZ_INLINE void pageQueueBumpAllocator <P>::calcualteUsage (uint32_t & nBytesOut, uint32_t & nPagesOut) const
+                                                                                             {
+			calcualteUsageStatic(store.head, nBytesOut, nPagesOut);
+			}
+}
+namespace stt
+{
+  template <typename P>
+  void pageQueueBumpAllocator <P>::calcualteUsageStatic (P * head, uint32_t & nBytesOut, uint32_t & nPagesOut)
+                                                                                                      {
+			nBytesOut = 0;
+			nPagesOut = 0;
+			
+			P* page = head;
+			while (page) {
+				nPagesOut++;
+				nBytesOut += page->ph.localSize;
+				page = (P*) page->ph.next;
+				}
+			}
 }
 namespace stt
 {
