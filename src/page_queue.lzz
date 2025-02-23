@@ -192,11 +192,11 @@ namespace stt {
 			
 		void clearKeepingFirstPage() {
 			// Clears the pageQueue but keeps the first page
-			if (head && head->next) {
+			if (head && head->ph.next) {
 				pageQueueImpl tmp;
-				tmp.head = head->next;
-				tmp.head->ph.cachedWorkingEnd = tail;
-				tmp.tail = tail;
+				tmp.head = (P*) head->ph.next;
+				tmp.head->ph.cachedWorkingEnd = (pageHeader*) tail;
+				tmp.tail = (P*) tail;
 				tmp.clear();
 				head->ph.next = NULL;
 				tail = head; 
