@@ -2113,6 +2113,16 @@ namespace stt {
 			if (sz)
 				resize(sz-1);
 			}
+			
+		void discard_internal_state() {
+			// Discards any internal state and resets to a blank container
+			// Does not call destructors, deallocate or do any cleanup.
+			//
+			// Use this if a custom allocator owns the underlying memory
+			// and this memory becomes invalid
+			sso.d.store.initToZero();
+			sso.init();
+			}
 
 protected:
 		void batch_append_copy(const T* begin, const storage_size_t count) {
