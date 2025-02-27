@@ -43,12 +43,14 @@ namespace stt {
 			ptr = NULL;
 			}
 			
-		static storage_size_t calcualteNextCapacity(const storage_size_t currentCapacity, const storage_size_t minNewCapacity, const storage_size_t stride) {//, const allocatorI * allocator) {
+		static storage_size_t calcualteNextCapacity(const allocatorI* const customAllocator, const storage_size_t currentCapacity, const storage_size_t minNewCapacity, const storage_size_t stride) {//, const allocatorI * allocator) {
 			// Applies a growth factor to capacity
 			if (minNewCapacity > currentCapacity*2) {
 				return minNewCapacity; 
 				}
 			if (minNewCapacity > currentCapacity) {
+				if (customAllocator) // custom allocators might need special considerations (eg, not allocating just above the size of an internall buffer just to get a 2x growth)
+					return customAllocator->getNextCapacity(minNewCapacity);
 				return currentCapacity*2;
 				}
 			return currentCapacity;

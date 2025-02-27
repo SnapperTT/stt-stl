@@ -511,6 +511,7 @@ namespace stt
     virtual uint8_t * allocate (alloc_size_t const size) noexcept = 0;
     virtual void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept = 0;
     virtual bool try_realloc (uint8_t * ptr, alloc_size_t const oldSize, alloc_size_t const newSize) noexcept;
+    virtual alloc_size_t getNextCapacity (alloc_size_t const minSizeBytes) const;
   };
 }
 namespace stt
@@ -566,6 +567,20 @@ namespace stt
 }
 namespace stt
 {
+  LZZ_INLINE bool allocatorI::try_realloc (uint8_t * ptr, alloc_size_t const oldSize, alloc_size_t const newSize) noexcept
+                                                                                                                                 {
+			// tries to resize an allocation, if it cannot be done then returns false
+			// if the allocation is resized then ptr is unchanged
+			return false;
+			}
+}
+namespace stt
+{
+  LZZ_INLINE alloc_size_t allocatorI::getNextCapacity (alloc_size_t const minSizeBytes) const
+                                                                                                   { return minSizeBytes * 2; }
+}
+namespace stt
+{
   LZZ_INLINE crt_allocator::crt_allocator ()
                                        {}
 }
@@ -608,15 +623,6 @@ namespace stt
 {
   allocatorI::~ allocatorI ()
                                       {}
-}
-namespace stt
-{
-  bool allocatorI::try_realloc (uint8_t * ptr, alloc_size_t const oldSize, alloc_size_t const newSize) noexcept
-                                                                                                                          {
-			// tries to resize an allocation, if it cannot be done then returns false
-			// if the allocation is resized then ptr is unchanged
-			return false;
-			}
 }
 namespace stt
 {
@@ -742,7 +748,7 @@ namespace stt
     allocatorI * wrangleAllocator ();
     void setAllocator (allocatorI * alloc);
     void deallocate ();
-    static storage_size_t calcualteNextCapacity (storage_size_t const currentCapacity, storage_size_t const minNewCapacity, storage_size_t const stride);
+    static storage_size_t calcualteNextCapacity (allocatorI const * const customAllocator, storage_size_t const currentCapacity, storage_size_t const minNewCapacity, storage_size_t const stride);
     template <typename T>
     void growCapacity (storage_size_t const wantsCapacityBytes, T * _unused);
     template <typename T>
@@ -856,13 +862,15 @@ namespace stt
 }
 namespace stt
 {
-  storage_size_t storage::calcualteNextCapacity (storage_size_t const currentCapacity, storage_size_t const minNewCapacity, storage_size_t const stride)
-                                                                                                                                                                    {//, const allocatorI * allocator) {
+  storage_size_t storage::calcualteNextCapacity (allocatorI const * const customAllocator, storage_size_t const currentCapacity, storage_size_t const minNewCapacity, storage_size_t const stride)
+                                                                                                                                                                                                             {//, const allocatorI * allocator) {
 			// Applies a growth factor to capacity
 			if (minNewCapacity > currentCapacity*2) {
 				return minNewCapacity; 
 				}
 			if (minNewCapacity > currentCapacity) {
+				if (customAllocator) // custom allocators might need special considerations (eg, not allocating just above the size of an internall buffer just to get a 2x growth)
+					return customAllocator->getNextCapacity(minNewCapacity);
 				return currentCapacity*2;
 				}
 			return currentCapacity;
@@ -1256,7 +1264,7 @@ namespace stt
 			storage store2;
 			store2.initToZero();
 			store2.mAllocator = mAllocator;
-			const storage_size_t ck = storage::calcualteNextCapacity(N-1, wantsCapacityBytes + null_termination_padding(), element_size());
+			const storage_size_t ck = storage::calcualteNextCapacity(mAllocator, N-1, wantsCapacityBytes + null_termination_padding(), element_size());
 			store2.growCapacity(ck, (T*) NULL);
 					
 			//printf("move elements %lx, %lx, %i:\n", (intptr_t) store2.ptr, (intptr_t) &d.sso[0], local_size()/element_size());
@@ -1313,7 +1321,7 @@ namespace stt
                                                                                                                               {
 			const storage_size_t origCapacity = d.store.capacity;
 			if (wantCapacityBytes >= origCapacity) {
-				const storage_size_t ck = storage::calcualteNextCapacity(origCapacity, wantCapacityBytes + null_termination_padding(), element_size());
+				const storage_size_t ck = storage::calcualteNextCapacity(d.store.mAllocator, origCapacity, wantCapacityBytes + null_termination_padding(), element_size());
 				d.store.growCapacity(ck, (T*) NULL);
 				}
 				

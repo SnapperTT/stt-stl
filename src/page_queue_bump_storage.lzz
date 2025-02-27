@@ -100,11 +100,23 @@ namespace stt {
 			return (uint8_t*) r.data();
 			}
 		inline void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT) {} // no op
+		// TBD - try realloc
+		alloc_size_t getNextCapacity(const alloc_size_t minSizeBytes) const {
+			constexpr uint32_t maxSize = maxWriteSize() - sizeof(writeSizeType);
+			if (minSizeBytes >= maxSize/2) {
+				//stt_dbg_log("PQ getNextCapacity, minSizeBytes %i, maxSize %i", minSizeBytes, maxSize);
+				if (minSizeBytes < maxSize)
+					return maxSize;
+				}
+			return minSizeBytes * 2;
+			}
+		
 		
 		string_view checkOverflow(const char* str, const uint32_t size, const uint32_t wantsSize) {
 			// Is this string too big to fit on a page? If so then throw it into a string object
 			constexpr uint32_t maxSize = maxWriteSize();
 			if (wantsSize > maxSize) {
+				//stt_dbg_log("PQ OVERFLOW!, wantsSize %i, maxSize %i", wantsSize, maxSize);
 				if (overflow) {
 					return overflow->push_back(str, size);
 					}
@@ -225,6 +237,15 @@ namespace stt {
 			//	abort();
 			
 			return string_view(ptr, size);
+			}
+		};
+	
+	template<typename P>
+	struct pageQueueBumpAllocatorWithOverflow : public pageQueueBumpAllocator<P>  {
+		pageQueueBumpAllocatorOverflowCtr overflowCtr;
+		
+		pageQueueBumpAllocatorWithOverflow() : pageQueueBumpAllocator<P>() {
+			this->overflow = &overflowCtr;
 			}
 		};
 	}

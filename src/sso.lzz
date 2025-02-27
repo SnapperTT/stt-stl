@@ -194,7 +194,7 @@ namespace stt {
 			storage store2;
 			store2.initToZero();
 			store2.mAllocator = mAllocator;
-			const storage_size_t ck = storage::calcualteNextCapacity(N-1, wantsCapacityBytes + null_termination_padding(), element_size());
+			const storage_size_t ck = storage::calcualteNextCapacity(mAllocator, N-1, wantsCapacityBytes + null_termination_padding(), element_size());
 			store2.growCapacity(ck, (T*) NULL);
 					
 			//printf("move elements %lx, %lx, %i:\n", (intptr_t) store2.ptr, (intptr_t) &d.sso[0], local_size()/element_size());
@@ -239,7 +239,7 @@ namespace stt {
 		inline uint8_t* reserve_impl_store(const storage_size_t wantCapacityBytes, const storage_size_t incrSize = 0) {
 			const storage_size_t origCapacity = d.store.capacity;
 			if (wantCapacityBytes >= origCapacity) {
-				const storage_size_t ck = storage::calcualteNextCapacity(origCapacity, wantCapacityBytes + null_termination_padding(), element_size());
+				const storage_size_t ck = storage::calcualteNextCapacity(d.store.mAllocator, origCapacity, wantCapacityBytes + null_termination_padding(), element_size());
 				d.store.growCapacity(ck, (T*) NULL);
 				}
 				

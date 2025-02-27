@@ -28,11 +28,12 @@ namespace stt {
 		
 		virtual uint8_t* allocate(const alloc_size_t size__NOEXCEPT) = 0;	// returns the pointer, sets size to the actual size allocated
 		virtual void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT) = 0;
-		virtual bool try_realloc(uint8_t * ptr, const alloc_size_t oldSize, const alloc_size_t newSize__NOEXCEPT) {
+		virtual inline bool try_realloc(uint8_t * ptr, const alloc_size_t oldSize, const alloc_size_t newSize__NOEXCEPT) {
 			// tries to resize an allocation, if it cannot be done then returns false
 			// if the allocation is resized then ptr is unchanged
 			return false;
 			}
+		virtual inline alloc_size_t getNextCapacity(const alloc_size_t minSizeBytes) const { return minSizeBytes * 2; }
 		};
 		
 	// wrapper of malloc/free
