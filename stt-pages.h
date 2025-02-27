@@ -2372,6 +2372,7 @@ namespace stt
     T * serialise (T const & t);
     uint8_t * allocate (alloc_size_t const size) noexcept;
     void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept;
+    alloc_size_t getNextCapacity (alloc_size_t const minSizeBytes) const;
     string_view checkOverflow (char const * str, uint32_t const size, uint32_t const wantsSize);
     string_view push_back (string_view const & sv);
     string_view push_back (char const * str, uint32_t const size);
@@ -2392,6 +2393,15 @@ namespace stt
     static void calcualteUsageStatic (P * head, uint32_t & nBytesOut, uint32_t & nPagesOut);
     static constexpr uint32_t maxWriteSize ();
     static string_view writeBufferRaw (P * page, char const * str, writeSizeType const size);
+  };
+}
+namespace stt
+{
+  template <typename P>
+  struct pageQueueBumpAllocatorWithOverflow : public pageQueueBumpAllocator <P>
+  {
+    pageQueueBumpAllocatorOverflowCtr overflowCtr;
+    pageQueueBumpAllocatorWithOverflow ();
   };
 }
 namespace stt
@@ -2482,11 +2492,26 @@ namespace stt
 namespace stt
 {
   template <typename P>
+  alloc_size_t pageQueueBumpAllocator <P>::getNextCapacity (alloc_size_t const minSizeBytes) const
+                                                                                    {
+			constexpr uint32_t maxSize = maxWriteSize() - sizeof(writeSizeType);
+			if (minSizeBytes >= maxSize/2) {
+				//stt_dbg_log("PQ getNextCapacity, minSizeBytes %i, maxSize %i", minSizeBytes, maxSize);
+				if (minSizeBytes < maxSize)
+					return maxSize;
+				}
+			return minSizeBytes * 2;
+			}
+}
+namespace stt
+{
+  template <typename P>
   string_view pageQueueBumpAllocator <P>::checkOverflow (char const * str, uint32_t const size, uint32_t const wantsSize)
                                                                                                           {
 			// Is this string too big to fit on a page? If so then throw it into a string object
 			constexpr uint32_t maxSize = maxWriteSize();
 			if (wantsSize > maxSize) {
+				//stt_dbg_log("PQ OVERFLOW!, wantsSize %i, maxSize %i", wantsSize, maxSize);
 				if (overflow) {
 					return overflow->push_back(str, size);
 					}
@@ -2663,6 +2688,15 @@ namespace stt
 			//	abort();
 			
 			return string_view(ptr, size);
+			}
+}
+namespace stt
+{
+  template <typename P>
+  pageQueueBumpAllocatorWithOverflow <P>::pageQueueBumpAllocatorWithOverflow ()
+    : pageQueueBumpAllocator <P> ()
+                                                                                   {
+			this->overflow = &overflowCtr;
 			}
 }
 #undef LZZ_INLINE
