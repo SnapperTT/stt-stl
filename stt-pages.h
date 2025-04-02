@@ -1898,7 +1898,7 @@ namespace stt
       void incr_nonInline ();
       typename pageQueueImpl <T,P>::iterator & operator ++ ();
       bool operator != (iterator const & other) const;
-      T operator * ();
+      T & operator * ();
     };
     pageQueueImpl ();
     ~ pageQueueImpl ();
@@ -1927,6 +1927,7 @@ namespace stt
     void swap (pageQueueImpl & other);
     void concatenate (STT_PAGEQUEUE_MVSEM other);
     void reserve (uint32_t const sz);
+    T * push_back ();
     T * push_back (T const & t);
     T * push_back (T&& t);
     iterator iter_at (uint32_t const idx);
@@ -1995,8 +1996,8 @@ namespace stt
 namespace stt
 {
   template <typename T, typename P>
-  LZZ_INLINE T pageQueueImpl <T, P>::iterator::operator * ()
-                                              { return *ptr; }
+  LZZ_INLINE T & pageQueueImpl <T, P>::iterator::operator * ()
+                                               { return *ptr; }
 }
 namespace stt
 {
@@ -2244,6 +2245,18 @@ namespace stt
 namespace stt
 {
   template <typename T, typename P>
+  LZZ_INLINE T * pageQueueImpl <T, P>::push_back ()
+                                      {
+			extendTailIfRequired();
+			T* r = new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T();
+			tail->ph.localSize++;
+			head->ph.totalSize++;
+			return r;
+			}
+}
+namespace stt
+{
+  template <typename T, typename P>
   LZZ_INLINE T * pageQueueImpl <T, P>::push_back (T const & t)
                                                 {
 			extendTailIfRequired();
@@ -2300,8 +2313,8 @@ namespace stt
 namespace stt
 {
   template <typename T, typename P>
-  typename pageQueueImpl <T, P>::iterator pageQueueImpl <T, P>::end ()
-                               {
+  LZZ_INLINE typename pageQueueImpl <T, P>::iterator pageQueueImpl <T, P>::end ()
+                                      {
 			iterator it;
 			it.init(NULL);
 			return  it;

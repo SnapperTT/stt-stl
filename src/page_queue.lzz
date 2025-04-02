@@ -90,7 +90,7 @@ namespace stt {
 				}
 				
 			inline bool operator!=(const iterator & other) const { return ptr != other.ptr; }
-			inline T operator* () { return *ptr; }
+			inline T& operator* () { return *ptr; }
 			};
 		
 		//////////////////////////////////////////////////////////////////////////
@@ -243,6 +243,14 @@ namespace stt {
 			tail->ph.next = allocPages(nPagesToAllocate);
 			}
 		
+		inline T* push_back() {
+			extendTailIfRequired();
+			T* r = new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T();
+			tail->ph.localSize++;
+			head->ph.totalSize++;
+			return r;
+			}
+			
 		inline T* push_back(const T& t) {
 			extendTailIfRequired();
 			T* r = new (&(pageQueueImpl::pagePtr(tail)[tail->ph.localSize])) T(t);
@@ -283,7 +291,7 @@ namespace stt {
 			return  it;
 			}
 			
-		iterator end() {
+		inline iterator end() {
 			iterator it;
 			it.init(NULL);
 			return  it;
