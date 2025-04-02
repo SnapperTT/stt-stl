@@ -199,7 +199,8 @@ namespace stt {
 			
 		void shrink_to_fit() { sso.shrink_to_fit(); }
 		
-		//inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
+		inline span<T> to_span () const noexcept { return span<T>(data(), size()); }
+		
 		inline void setAllocator(allocatorI * alloc) { sso.setAllocator(alloc); }
 		inline allocatorI* getCustomAllocator() const { return (sso.useSso() ? NULL : sso.d.store.mAllocator); } // returns the custom allocator object, if set. If no custom allocator has been set return NULL
 		

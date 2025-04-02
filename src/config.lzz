@@ -49,6 +49,10 @@
 	#define STT_STL_DEBUG_PAGE 0
 #endif
 
+#ifndef STT_STL_USE_STD_SPAN_IF_AVAILIABLE
+	#define STT_STL_USE_STD_SPAN_IF_AVAILIABLE 1
+#endif
+
 // track  page allocations - if STT_STL_DEBUG_PAGE is on then
 // force enable STT_STL_TRACK_SYSTEM_ALLOCATIONS
 #ifndef STT_STL_TRACK_SYSTEM_ALLOCATIONS
