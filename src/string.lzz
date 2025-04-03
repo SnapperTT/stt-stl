@@ -78,7 +78,7 @@ namespace stt {
 		//inline ~string_base_traits() noexcept { ~base_type(); }
 		
 		inline string_base_traits(allocatorI* alloc) noexcept : base_type() { this->sso.setAllocator(alloc); }
-		
+				
 		template <STT_STRING_TYPE_TEMPLATE_DECL>
 		string_base_traits(const STRING_TYPE& s) noexcept {
 			this->sso.init();
@@ -93,6 +93,14 @@ namespace stt {
 			
 		template <STT_STRING_TYPE_TEMPLATE_DECL>
 		string_base_traits(STRING_TYPE&& s) noexcept {
+			if constexpr (std::is_lvalue_reference<STRING_TYPE>::value) {
+				// This captures STRING_TYPE = string_base_traits& cases
+				//printf("moveConstruct copy construct %s, [%s]\n", __PRETTY_FUNCTION__, s.c_str());
+				this->sso.init();
+				this->append(s.data(), s.size());
+				return;
+				}
+			// Move constuct with a mystery type
 			//printf("moveConstruct %s, [%s]\n", __PRETTY_FUNCTION__, s.c_str());
 			this->sso.init();
 			move_assign(std::move(s));
@@ -503,6 +511,8 @@ public:
 
 		template <unsigned int N2, typename SSO_SIZE_T2>
 		void move_assign (string_base_traits<N2,SSO_SIZE_T2>&& other) noexcept {
+			// does this actually get called? Or does it automagically fall through to vector() move stuff?
+			
 			// move assign
 			// 0. discard any local heap info
 			// 1. if other is on the heap and cannot fit, transfer pointer
