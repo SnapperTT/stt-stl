@@ -77,6 +77,13 @@ namespace stt {
 		inline string_base_traits()  noexcept : base_type() {}
 		//inline ~string_base_traits() noexcept { ~base_type(); }
 		
+		// Default copy constructor, move constructor, copy operator=
+		// just use auto generated constructors and fall through to
+		// the relevent vector_base_traits<...>'
+		string_base_traits(const string_base_traits& other) = default;
+		string_base_traits(string_base_traits&& other) = default;
+		string_base_traits& operator = (const string_base_traits& other) = default;
+		
 		inline string_base_traits(allocatorI* alloc) noexcept : base_type() { this->sso.setAllocator(alloc); }
 				
 		template <STT_STRING_TYPE_TEMPLATE_DECL>
