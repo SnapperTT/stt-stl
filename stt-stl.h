@@ -1980,10 +1980,8 @@ namespace stt
   template <typename T, uint32_t stackCapacity>
   varray <T, stackCapacity>::~ varray ()
                   {
-		if (alloc) {
+		if (alloc)
 			alloc->deallocate((uint8_t*) data, bytesAllocated);
-			data = NULL;
-			}
 		}
 }
 namespace stt
