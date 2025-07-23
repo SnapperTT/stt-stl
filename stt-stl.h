@@ -143,6 +143,9 @@ namespace stt {
 	
 	template <typename T>
 	using requires_fill_on_resize = std::integral_constant<bool,!std::is_trivially_default_constructible<T>::value>;
+	
+	template <typename T>
+	using requires_destroy_on_resize = std::integral_constant<bool,!std::is_trivially_destructible<T>::value>;
 	}
 #define LZZ_INLINE inline
 namespace stt
@@ -1935,6 +1938,7 @@ namespace stt
 // Replace with:
 // int len = 5;
 // stt::varray<int, 512> arr(len, someAllocatorI);
+
 namespace stt {
 	class allocatorI;
 	}
@@ -1948,8 +1952,8 @@ namespace stt
     uint8_t (buff) [stackCapacity*sizeof(T)];
     T * data;
     allocatorI * alloc;
-    alloc_size_t bytesAllocated;
-    varray (uint32_t const size, allocatorI * _alloc = NULL);
+    uint32_t size;
+    varray (uint32_t const _size, allocatorI * _alloc = NULL);
     ~ varray ();
     T & operator [] (uint32_t const idx);
     T const & operator [] (uint32_t const idx) const;
@@ -1958,20 +1962,23 @@ namespace stt
 namespace stt
 {
   template <typename T, uint32_t stackCapacity>
-  varray <T, stackCapacity>::varray (uint32_t const size, allocatorI * _alloc)
-                                                               {
-		if (size <= stackCapacity) {
+  varray <T, stackCapacity>::varray (uint32_t const _size, allocatorI * _alloc)
+                                                                {
+		if (_size <= stackCapacity) {
 			data = (T*) &buff[0];
 			alloc = NULL;
-			bytesAllocated = 0;
+			size = _size;
 			}
 		else {
-			const alloc_size_t wantsSize = size*sizeof(T);
+			const alloc_size_t wantsSize = _size*sizeof(T);
 			alloc = _alloc;
 			if (!alloc)
 				alloc = crt_allocator::getStaticCrtAllocator();
 			data = (T*) alloc->allocate(wantsSize);
-			bytesAllocated = wantsSize;
+			size = _size;
+			}
+		if constexpr (requires_fill_on_resize<T>::value) {
+			objectFillRangeInPlace<T>(&data[0], &data[size]);
 			}
 		}
 }
@@ -1980,8 +1987,11 @@ namespace stt
   template <typename T, uint32_t stackCapacity>
   varray <T, stackCapacity>::~ varray ()
                   {
+		if constexpr (requires_destroy_on_resize<T>::value) {
+			objectDestroyRange<T>(&data[0], &data[size]);
+			}
 		if (alloc)
-			alloc->deallocate((uint8_t*) data, bytesAllocated);
+			alloc->deallocate((uint8_t*) data, size*sizeof(T));
 		}
 }
 namespace stt

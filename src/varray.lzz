@@ -6,6 +6,7 @@
 // Replace with:
 // int len = 5;
 // stt::varray<int, 512> arr(len, someAllocatorI);
+
 namespace stt {
 	class allocatorI;
 	}
@@ -22,27 +23,33 @@ public:
 	uint8_t buff[stackCapacity*sizeof(T)];
 	T* data;
 	allocatorI * alloc;
-	alloc_size_t bytesAllocated;
+	uint32_t size;
 	
-	varray(const uint32_t size, allocatorI* _alloc = NULL) {
-		if (size <= stackCapacity) {
+	varray(const uint32_t _size, allocatorI* _alloc = NULL) {
+		if (_size <= stackCapacity) {
 			data = (T*) &buff[0];
 			alloc = NULL;
-			bytesAllocated = 0;
+			size = _size;
 			}
 		else {
-			const alloc_size_t wantsSize = size*sizeof(T);
+			const alloc_size_t wantsSize = _size*sizeof(T);
 			alloc = _alloc;
 			if (!alloc)
 				alloc = crt_allocator::getStaticCrtAllocator();
 			data = (T*) alloc->allocate(wantsSize);
-			bytesAllocated = wantsSize;
+			size = _size;
+			}
+		if constexpr (requires_fill_on_resize<T>::value) {
+			objectFillRangeInPlace<T>(&data[0], &data[size]);
 			}
 		}
 		
 	~varray() {
+		if constexpr (requires_destroy_on_resize<T>::value) {
+			objectDestroyRange<T>(&data[0], &data[size]);
+			}
 		if (alloc)
-			alloc->deallocate((uint8_t*) data, bytesAllocated);
+			alloc->deallocate((uint8_t*) data, size*sizeof(T));
 		}
 	
 	inline T& operator [] (const uint32_t idx) { return data[idx]; }
