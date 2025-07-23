@@ -801,8 +801,8 @@ public:
 	static void systemAllocate_impl(const uint32_t sizeofPageType, const uint32_t nPagesTotal, const uint32_t nSplit, pageHeader** groupA, pageHeader** groupB) {
 		// Group A & B are pointers to pointers, NOT arrays of pointers
 		// allocates at least nPagesTotal, and returns (nSplit) into linked list groupA and the rest into linked list groupB
-				
-		pageHeader* ph[nPagesTotal];
+		varray<pageHeader*, 1024> ph(nPagesTotal);
+		
 		ph[0] = (pageHeader*) raw_alloc(sizeofPageType);
 		for (uint i = 1; i < nPagesTotal; ++i) {
 			ph[i] = (pageHeader*) raw_alloc(sizeofPageType);
