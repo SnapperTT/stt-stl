@@ -112,22 +112,13 @@ namespace stt {
 			}
 		static P* allocPages (const uint32_t nPages) {
 			if (nPages == 0) return NULL;
-			const uint32_t maxPages = 1024;
+			varray<pageHeader*,1024> storePH(nPages);
+			P* store = (P*) storePH.data;
 			
-			// avoid VLA
-			P* buff[maxPages];
-			P* store = &buff[0];
-			if (nPages > maxPages)
-				store = new P*[nPages];
-				
 			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
 			for (uint32_t i = 0; i < nPages; ++i)
 				store[i]->initHeader();
-			P* r = pageHeader::buildList((pageHeader**) &store[0], nPages); // TBD - buildListAndInit
-			
-			if (nPages > maxPages)
-				delete[] store;
-			return r;
+			return pageHeader::buildList((pageHeader**) &store[0], nPages); // TBD - buildListAndInit
 			}
 		static void freePage(P* page) {
 			ThreadSafePageAllocatorTemplates::freeGeneric<P>(page);

@@ -746,7 +746,7 @@ namespace stt
 			// we are out of pages, request pages from TSPA (locking)
 			const uint32_t countInit = count;
 			const uint32_t want = requestAmount + nPages - count;	// Batch size + (num needed for this request)
-			pageHeader* localStore[want];
+			varray<pageHeader*, 1024> localStore(want);
 			
 			#if STT_STL_DEBUG_PAGE
 				stt_dbg_log("ThreadLocalPagePool %s fetching from backend want: %i, nPages: %i, count: %i, (nPages - countInit): %i, requestAmount: %i\n", getThreadLabel(), want, nPages, count, (nPages-countInit), requestAmount);
@@ -2046,22 +2046,13 @@ namespace stt
   P * pageQueueImpl <T, P>::allocPages (uint32_t const nPages)
                                                              {
 			if (nPages == 0) return NULL;
-			const uint32_t maxPages = 1024;
+			varray<pageHeader*,1024> storePH(nPages);
+			P* store = (P*) storePH.data;
 			
-			// avoid VLA
-			P* buff[maxPages];
-			P* store = &buff[0];
-			if (nPages > maxPages)
-				store = new P*[nPages];
-				
 			ThreadSafePageAllocatorTemplates::allocGenericBatch<P>(&store[0], nPages);
 			for (uint32_t i = 0; i < nPages; ++i)
 				store[i]->initHeader();
-			P* r = pageHeader::buildList((pageHeader**) &store[0], nPages); // TBD - buildListAndInit
-			
-			if (nPages > maxPages)
-				delete[] store;
-			return r;
+			return pageHeader::buildList((pageHeader**) &store[0], nPages); // TBD - buildListAndInit
 			}
 }
 namespace stt
