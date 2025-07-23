@@ -72,6 +72,25 @@ int main (int argc, char ** argv) {
 			}
 	}
 
+	// Varray Test
+	struct AConstruct {
+		uint8_t a;
+		AConstruct () {
+			stt::stt_dbg_log("AConstruct\n");
+			}
+		};
+	struct BDestruct {
+		uint8_t a;
+		~BDestruct () {
+			stt::stt_dbg_log("BDestruct\n");
+			}
+		};
+	{
+		stt::varray<AConstruct,10> AArr(5);
+		stt::varray<BDestruct,2> BArr(5);
+		stt::stt_dbg_log("A is heap: %b, B is heap: %b\n", AArr.alloc != NULL, BArr.alloc != NULL);
+	}
+
 	// Cleanup - 
 	// If you are exiting the program you can just ::exit() and forgo cleanup
 	

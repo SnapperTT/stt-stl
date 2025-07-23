@@ -29,6 +29,9 @@ namespace stt {
 	
 	template <typename T>
 	using requires_fill_on_resize = std::integral_constant<bool,!std::is_trivially_default_constructible<T>::value>;
+	
+	template <typename T>
+	using requires_destroy_on_resize = std::integral_constant<bool,!std::is_trivially_destructible<T>::value>;
 	}
 #end
 
