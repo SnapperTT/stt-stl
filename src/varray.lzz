@@ -1,0 +1,51 @@
+#hdr
+// Purpose: drop in replacement for vla
+// int len = 5;
+// int arr[len];
+// 
+// Replace with:
+// int len = 5;
+// stt::varray<int, 512> arr(len, someAllocatorI);
+namespace stt {
+	class allocatorI;
+	}
+#end
+
+#src
+#include "allocator.hh"
+#end
+
+namespace stt {
+template <typename T, uint32_t stackCapacity>
+class varray {
+public:
+	uint8_t buff[stackCapacity*sizeof(T)];
+	T* data;
+	allocatorI * alloc;
+	alloc_size_t bytesAllocated;
+	
+	varray(const uint32_t size, allocatorI* _alloc = NULL) {
+		if (size <= stackCapacity) {
+			data = (T*) &buff[0];
+			alloc = NULL;
+			bytesAllocated = 0;
+			}
+		else {
+			const alloc_size_t wantsSize = size*sizeof(T);
+			alloc = _alloc;
+			if (!alloc)
+				alloc = crt_allocator::getStaticCrtAllocator();
+			data = (T*) alloc->allocate(wantsSize);
+			bytesAllocated = wantsSize;
+			}
+		}
+		
+	~varray() {
+		if (alloc)
+			alloc->deallocate((uint8_t*) data, bytesAllocated);
+		}
+	
+	inline T& operator [] (const uint32_t idx) { return data[idx]; }
+	inline const T& operator [] (const uint32_t idx) const { return data[idx]; }
+	};
+}
