@@ -521,7 +521,7 @@ public:
 			// we are out of pages, request pages from TSPA (locking)
 			const uint32_t countInit = count;
 			const uint32_t want = requestAmount + nPages - count;	// Batch size + (num needed for this request)
-			pageHeader* localStore[want];
+			varray<pageHeader*, 1024> localStore(want);
 			
 			#if STT_STL_DEBUG_PAGE
 				stt_dbg_log("ThreadLocalPagePool %s fetching from backend want: %i, nPages: %i, count: %i, (nPages - countInit): %i, requestAmount: %i\n", getThreadLabel(), want, nPages, count, (nPages-countInit), requestAmount);

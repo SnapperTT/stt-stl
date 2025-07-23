@@ -5,8 +5,8 @@ USE_STTR=
 
 LAZY=../../lzz-bin/lzz -hx hh
 # Files are combined into single header
-RAWSOURCES=example.lzz example_pages.lzz config.lzz common.lzz allocator.lzz storage.lzz sso.lzz page.lzz vector.lzz string.lzz span.lzz benchmark_tests.lzz mt_page_allocator_impl.lzz mt_page_allocator.lzz page_queue_bump_storage.lzz page_queue.lzz page.lzz
-SINGLEHEADER_SRC=config.h2 common.h2 allocator.h2 span.h2 storage.h2 sso.h2 page.h2 vector.h2 string.h2
+RAWSOURCES=example.lzz example_pages.lzz config.lzz common.lzz allocator.lzz storage.lzz sso.lzz page.lzz varray.lzz vector.lzz string.lzz span.lzz benchmark_tests.lzz mt_page_allocator_impl.lzz mt_page_allocator.lzz page_queue_bump_storage.lzz page_queue.lzz page.lzz
+SINGLEHEADER_SRC=config.h2 common.h2 allocator.h2 span.h2 storage.h2 sso.h2 page.h2 varray.h2 vector.h2 string.h2
 SINGLEHEADER_OUT=stt-stl.h
 # Pages optional sub-module
 PAGES_SRC=mt_page_allocator_impl.h2 mt_page_allocator.h2 page.h2 page_queue.h2 page_queue_bump_storage.h2
