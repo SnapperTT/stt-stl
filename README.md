@@ -28,12 +28,13 @@ C++17
 * Choose your SSO size (eg `typedef mystring47 stt::string_base<47>`)
 * Internal `try_realloc`
 * Drop in replacements for `std::string`, `std::vector` and `std::span` without C++20 (does require C++17 though)
+* `varray<T, N>`, example `stt::varray<int, 64> int(_size);` makes a fixed size array of size `_size` of maximum size 64 on the stack, else on the heap. Drop in replacement for Variable Length Arrays (vla).
 * `small_vector<T, N>` support for SSO of size N instances of T
 * Automatic conversion between `stt::string*` and any string class that supports `c_str()`
 
 
 ## Limitiations:
-* Max size of 2^32-1 in bytes of each container (size_t is uint32_t). If you need more than 4GB then either use another container.
+* Max size of 2^32-1 in bytes of each container (size_t is uint32_t). If you need more than 4GB then use another container.
 
 
 ## Objectives:
