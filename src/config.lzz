@@ -79,6 +79,23 @@
 // uncomment to use std::span instead of stt::span
 //#define STT_STL_SPAN std::span 
 
+// Likley
+#ifndef STT_STL_LIKLEY
+	#if __cplusplus >= 202002L
+		#define STT_STL_LIKLEY(cond) [[likely]] (cond)
+	#else
+		#define STT_STL_LIKLEY(cond) (__builtin_expect(!!(cond), 1))
+	#endif
+#endif
+
+#ifndef STT_STL_UNLIKLEY
+	#if __cplusplus >= 202002L
+		#define STT_STL_UNLIKLEY(cond) [[unlikely]] (cond)
+	#else
+		#define STT_STL_UNLIKLEY(cond) (__builtin_expect(!!(cond), 0))
+	#endif
+#endif
+
 #end
 
 

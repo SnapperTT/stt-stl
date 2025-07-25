@@ -1,11 +1,4 @@
 #hdr
-// Purpose: drop in replacement for vla
-// int len = 5;
-// int arr[len];
-// 
-// Replace with:
-// int len = 5;
-// stt::varray<int, 512> arr(len, someAllocatorI);
 
 namespace stt {
 	class allocatorI;
@@ -20,13 +13,28 @@ namespace stt {
 template <typename T, uint32_t stackCapacity>
 class varray {
 public:
+	// Purpose: drop in replacement for Variable Length Arrays
+	// int len = 5;
+	// int arr[len];
+	// 
+	// Replace with:
+	// int len = 5;
+	// stt::varray<int, 512> arr(len, someAllocatorI); // array of max stack size 512*sizeof(int) bytes
+	// if len > size then someAllocatorI will be used as a fallback
+	// 
+	// Despite the name VLAs are fixed size at runtime (not like vector<>)
+	//
+	// If someAllocatorI is null then crt_allocator::getStaticCrtAllocator()
+	// will be used (just a new/delete wrapper)
+	//
 	uint8_t buff[stackCapacity*sizeof(T)];
 	T* data;
 	allocatorI * alloc;
 	uint32_t size;
 	
+	
 	varray(const uint32_t _size, allocatorI* _alloc = NULL) {
-		if (_size <= stackCapacity) {
+		if STT_STL_LIKLEY(_size <= stackCapacity) {
 			data = (T*) &buff[0];
 			alloc = NULL;
 			size = _size;
