@@ -2328,7 +2328,9 @@ namespace stt {
 			sso.init();
 			}
 
-protected:
+//protected:
+public:
+// These are normally internal only functions but are useful
 		void batch_append_copy(const T* begin, const storage_size_t count) {
 			constexpr storage_size_t stride = sizeof(T)/(decltype(sso)::element_size());
 			
@@ -3556,22 +3558,11 @@ struct msaAbortErrorHandler {
 	static void throw_max_size_error(void* _ptr) { STT_STL_ABORT(); }
 	};
 	
-template <typename T, uint32_t maxElements, typename ErrorHandler = msaAbortErrorHandler>
+template <typename T, uint32_t MAX_ELEMENTS, typename SIZE_TYPE = uint8_t, typename ErrorHandler = stt::msaAbortErrorHandler>
 class maxSizeArray {
 public:
-	// Purpose: drop in replacement for Variable Length Arrays
-	// int len = 5;
-	// int arr[len];
-	// 
-	// Replace with:
-	// int len = 5;
-	// stt::varray<int, 512> arr(len, someAllocatorI); // array of max stack size 512*sizeof(int) bytes
-	// if len > size then someAllocatorI will be used as a fallback
-	// 
-	// Despite the name VLAs are fixed size at runtime (not like vector<>)
-	//
-	// If someAllocatorI is null then crt_allocator::getStaticCrtAllocator()
-	// will be used (just a new/delete wrapper)
+	// Purpose: drop in replacement for std::vector where you know the
+	// size of the vector will not exceed a fixed size
 	//
 	using iterator       = T*;
 	using const_iterator = const T*;
@@ -3582,28 +3573,28 @@ public:
 	using const_reverse_iterator = stt::reverse_iterator<const_iterator>;
 	typedef T value_type;
 		
-	uint8_t buff[maxElements*sizeof(T)];
-	uint32_t mSize;
+	uint8_t buff[MAX_ELEMENTS*sizeof(T)];
+	SIZE_TYPE mSize;
 	
-	inline maxSizeArray() : mSize(0) {}
-		
-	inline ~maxSizeArray() {
-		clear();
-		}
+	static_assert(SIZE_TYPE(-1) >= MAX_ELEMENTS);
 	
 	inline T* data() { return (T*) &buff[0]; }
 	inline const T* data() const { return (T*) &buff[0]; }
 	
 	inline T& operator [] (const uint32_t idx) { return data()[idx]; }
 	inline const T& operator [] (const uint32_t idx) const { return data()[idx]; }
-	inline T* at(const uint32_t idx) { return data()[idx]; }
-	inline const T* at(const uint32_t idx) const { return data()[idx]; }
+	inline T& at(const uint32_t idx) { return data()[idx]; }
+	inline const T& at(const uint32_t idx) const { return data()[idx]; }
+	
+	// get - returns a pointer to the object at (idx). Useful for lua bindings of arrays of objects without copying
+	inline T* get(const uint32_t idx) { return &(data()[idx]); }
+	inline const T* getC(const uint32_t idx) const { return &(data()[idx]); }
 		
 	inline uint64_t size_bytes() const noexcept { return mSize*sizeof(T); }
 	inline storage_size_t size() const noexcept { return mSize; }
 	inline storage_size_t length() const noexcept   { return mSize; }
-	inline static constexpr storage_size_t capacity() { return maxElements; }
-	inline static constexpr storage_size_t max_size() { return maxElements; }
+	inline static constexpr storage_size_t capacity() { return MAX_ELEMENTS; }
+	inline static constexpr storage_size_t max_size() { return MAX_ELEMENTS; }
 	
 	inline const_iterator cbegin() const noexcept { return const_iterator(data()); }
 	inline const_iterator cend()   const noexcept { return const_iterator(data() + size()); };
@@ -3634,10 +3625,10 @@ public:
 		}
 	
 	inline void resize(const uint32_t sz) {
-		if (mSize > maxElements) {
+		if (sz > MAX_ELEMENTS) {
 			if constexpr (requires_fill_on_resize<T>::value)
-				objectFillRangeInPlace(data() + mSize, data() + maxElements);
-			mSize = maxElements;
+				objectFillRangeInPlace(data() + mSize, data() + MAX_ELEMENTS);
+			mSize = MAX_ELEMENTS;
 			return ErrorHandler::throw_max_size_error(this);
 			}
 			
@@ -3651,6 +3642,11 @@ public:
 		
 		mSize = sz;
 		}
+	
+	inline void reserve(const uint32_t sz) {
+		if (sz > MAX_ELEMENTS)
+			return ErrorHandler::throw_max_size_error(this);
+		}
 		
 	inline void pop_back() {
 		const storage_size_t sz = size();
@@ -3659,15 +3655,24 @@ public:
 		}
 		
 	inline void push_back(const T & a) {
-		if (mSize >= maxElements) return ErrorHandler::throw_max_size_error(this);
+		if (mSize >= MAX_ELEMENTS) return ErrorHandler::throw_max_size_error(this);
 		data()[mSize] = a;
 		mSize++;
 		}
 		
 	inline void push_back(T&& a) {
-		if (mSize >= maxElements) return ErrorHandler::throw_max_size_error(this);
+		if (mSize >= MAX_ELEMENTS) return ErrorHandler::throw_max_size_error(this);
 		new (data() + mSize) T(std::move(a)); // move construct in place
 		mSize++;
+		}
+	
+	// alias of push_back for lua binding
+	inline void push_back_luasafe(const T & a) { push_back(a); }
+	
+	inline maxSizeArray() : mSize(0) {}
+		
+	inline ~maxSizeArray() {
+		clear();
 		}
 	
 	};

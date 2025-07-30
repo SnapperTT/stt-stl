@@ -284,7 +284,9 @@ namespace stt {
 			sso.init();
 			}
 
-protected:
+//protected:
+public:
+// These are normally internal only functions but are useful
 		void batch_append_copy(const T* begin, const storage_size_t count) {
 			constexpr storage_size_t stride = sizeof(T)/(decltype(sso)::element_size());
 			
