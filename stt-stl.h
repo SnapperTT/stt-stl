@@ -90,7 +90,7 @@
 // Likley
 #ifndef STT_STL_LIKLEY
 	#if __cplusplus >= 202002L
-		#define STT_STL_LIKLEY(cond) [[likely]] (cond)
+		#define STT_STL_LIKLEY(cond) (cond) [[likely]]
 	#else
 		#define STT_STL_LIKLEY(cond) (__builtin_expect(!!(cond), 1))
 	#endif
@@ -98,7 +98,7 @@
 
 #ifndef STT_STL_UNLIKLEY
 	#if __cplusplus >= 202002L
-		#define STT_STL_UNLIKLEY(cond) [[unlikely]] (cond)
+		#define STT_STL_UNLIKLEY(cond) (cond) [[unlikely]] 
 	#else
 		#define STT_STL_UNLIKLEY(cond) (__builtin_expect(!!(cond), 0))
 	#endif
@@ -835,6 +835,12 @@ namespace stt {
 #ifndef LZZ_storage_hh
 #define LZZ_storage_hh
 #define STT_ARRAY_CAST(_T, _ptr, _idx)  &(((_T*) _ptr)[_idx])
+
+#if defined(_WIN32) || defined(__APPLE__) || defined(__MACH__)
+	#define STT_ULL_FORMAT "llx"
+#else
+	#define STT_ULL_FORMAT "lx"
+#endif
 #define LZZ_INLINE inline
 namespace stt
 {
@@ -1005,7 +1011,7 @@ namespace stt
                                          {
 			#if STT_STL_DEBUG
 				// this generates compiler warnings on windows due to different format codes for integer sizes
-				printf("mAllocator: %lx, ptr: %lx, size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
+				printf("mAllocator: %" STT_ULL_FORMAT ", ptr: %" STT_ULL_FORMAT ", size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
 			#endif
 			}
 }

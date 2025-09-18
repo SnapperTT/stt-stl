@@ -1,5 +1,11 @@
 #hdr
 #define STT_ARRAY_CAST(_T, _ptr, _idx)  &(((_T*) _ptr)[_idx])
+
+#if defined(_WIN32) || defined(__APPLE__) || defined(__MACH__)
+	#define STT_ULL_FORMAT "llx"
+#else
+	#define STT_ULL_FORMAT "lx"
+#endif
 #end
 
 #src
@@ -114,7 +120,7 @@ namespace stt {
 		void dbg_printf () const {
 			#if STT_STL_DEBUG
 				// this generates compiler warnings on windows due to different format codes for integer sizes
-				printf("mAllocator: %lx, ptr: %lx, size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
+				printf("mAllocator: %" STT_ULL_FORMAT ", ptr: %" STT_ULL_FORMAT ", size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
 			#endif
 			}
 		};

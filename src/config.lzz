@@ -82,7 +82,7 @@
 // Likley
 #ifndef STT_STL_LIKLEY
 	#if __cplusplus >= 202002L
-		#define STT_STL_LIKLEY(cond) [[likely]] (cond)
+		#define STT_STL_LIKLEY(cond) (cond) [[likely]]
 	#else
 		#define STT_STL_LIKLEY(cond) (__builtin_expect(!!(cond), 1))
 	#endif
@@ -90,7 +90,7 @@
 
 #ifndef STT_STL_UNLIKLEY
 	#if __cplusplus >= 202002L
-		#define STT_STL_UNLIKLEY(cond) [[unlikely]] (cond)
+		#define STT_STL_UNLIKLEY(cond) (cond) [[unlikely]] 
 	#else
 		#define STT_STL_UNLIKLEY(cond) (__builtin_expect(!!(cond), 0))
 	#endif
