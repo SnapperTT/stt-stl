@@ -759,7 +759,8 @@ namespace stt
 #define LZZ_span_hh
 namespace stt {
 #if __has_include(<span>) && defined(__cplusplus) && __cplusplus >= 202002L && STT_STL_USE_STD_SPAN_IF_AVAILIABLE
-	using span = std::span;
+	template <typename T>
+	using span = std::span<T>;
 #else
 	// Custom span replacement for C++17 and earlier
 	template <typename T>
@@ -1119,10 +1120,10 @@ namespace stt
 			
 			// Asserts:
 			// sso must be bigger than the storage struct otherise ssoSize will alias
-			static_assert(sizeof(storage) <= N); // warning: if sizeof(storage) == N then capacity may alias into sso.size
+			static_assert(sizeof(storage) <= N); // warning: if sizeof(storage) == N then capacity may alias into sso.size. If you're getting this error increase N
 			
 			// Local storage is must fit into a SSO_SIZE_T with the high bit set to low
-			static_assert(N <= (1 << (sizeof(SSO_SIZE_T)*8 - 1)));
+			static_assert(N <= (1 << (sizeof(SSO_SIZE_T)*8 - 1))); // Note: if you're creating a small_vector<T, N> and sizeof(T)*N > 128 then you need to bump up the sso_size_type (eg, small_vector<T,N,uint16_t>)
 			}
 }
 namespace stt

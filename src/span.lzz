@@ -1,7 +1,8 @@
 #hdr
 namespace stt {
 #if __has_include(<span>) && defined(__cplusplus) && __cplusplus >= 202002L && STT_STL_USE_STD_SPAN_IF_AVAILIABLE
-	using span = std::span;
+	template <typename T>
+	using span = std::span<T>;
 #else
 	// Custom span replacement for C++17 and earlier
 	template <typename T>
