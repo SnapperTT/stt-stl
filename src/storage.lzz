@@ -120,7 +120,7 @@ namespace stt {
 		void dbg_printf () const {
 			#if STT_STL_DEBUG
 				// this generates compiler warnings on windows due to different format codes for integer sizes
-				printf("mAllocator: %" STT_ULL_FORMAT ", ptr: %" STT_ULL_FORMAT ", size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
+				printf("mAllocator: %" STT_ULL_FORMAT ", ptr: %" STT_ULL_FORMAT ", size %i, capacity %i\n", (uint64_t) mAllocator, (uint64_t) ptr, size, capacity);
 			#endif
 			}
 		};

@@ -757,11 +757,14 @@ namespace stt
 
 #ifndef LZZ_span_hh
 #define LZZ_span_hh
-namespace stt {
 #if __has_include(<span>) && defined(__cplusplus) && __cplusplus >= 202002L && STT_STL_USE_STD_SPAN_IF_AVAILIABLE
+	#include <span>
+namespace stt {
 	template <typename T>
 	using span = std::span<T>;
+	}
 #else
+namespace stt {
 	// Custom span replacement for C++17 and earlier
 	template <typename T>
 	class span {
@@ -804,8 +807,8 @@ namespace stt {
 		T* ptr_;
 		size_type size_;
 		};
-#endif // __has_include(<span>) && defined(__cplusplus) && __cplusplus >= 202002L
 }
+#endif // __has_include(<span>) && defined(__cplusplus) && __cplusplus >= 202002L
 #define LZZ_INLINE inline
 #undef LZZ_INLINE
 #endif
@@ -1011,7 +1014,7 @@ namespace stt
                                          {
 			#if STT_STL_DEBUG
 				// this generates compiler warnings on windows due to different format codes for integer sizes
-				printf("mAllocator: %" STT_ULL_FORMAT ", ptr: %" STT_ULL_FORMAT ", size %i, capacity %i\n", (intptr_t) mAllocator, (intptr_t) ptr, size, capacity);
+				printf("mAllocator: %" STT_ULL_FORMAT ", ptr: %" STT_ULL_FORMAT ", size %i, capacity %i\n", (uint64_t) mAllocator, (uint64_t) ptr, size, capacity);
 			#endif
 			}
 }
