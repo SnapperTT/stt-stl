@@ -1959,73 +1959,83 @@ namespace stt
 #ifndef LZZ_varray_hh
 #define LZZ_varray_hh
 
+
 namespace stt {
-	class allocatorI;
-	}
-#define LZZ_INLINE inline
-namespace stt
-{
-  template <typename T, uint32_t stackCapacity>
-  class varray
-  {
-  public:
-    uint8_t (buff) [stackCapacity*sizeof(T)];
-    T * data;
-    allocatorI * alloc;
-    uint32_t size;
-    varray (uint32_t const _size, allocatorI * _alloc = NULL);
-    ~ varray ();
-    T & operator [] (uint32_t const idx);
-    T const & operator [] (uint32_t const idx) const;
-  };
-}
-namespace stt
-{
-  template <typename T, uint32_t stackCapacity>
-  varray <T, stackCapacity>::varray (uint32_t const _size, allocatorI * _alloc)
-                                                                {
+template <typename T, uint32_t stackCapacity>
+class varray {
+public:
+	// Purpose: drop in replacement for Variable Length Arrays
+	// int len = 5;
+	// int arr[len];
+	// 
+	// Replace with:
+	// int len = 5;
+	// stt::varray<int, 512> arr(len, someAllocatorI); // array of max stack size 512*sizeof(int) bytes
+	// if len > size then someAllocatorI will be used as a fallback
+	// 
+	// Despite the name VLAs are fixed size at runtime (not like vector<>)
+	//
+	// If someAllocatorI is null then crt_allocator::getStaticCrtAllocator()
+	// will be used (just a new/delete wrapper)
+	//
+	using iterator       = T*;
+	using const_iterator = const T*;
+	using size_type = storage_size_t;
+	using reference      = T&;
+	using const_reference = const T&;
+	using reverse_iterator = stt::reverse_iterator<iterator>;
+	using const_reverse_iterator = stt::reverse_iterator<const_iterator>;
+	typedef T value_type;
+	
+	uint8_t buff[stackCapacity*sizeof(T)];
+	T* _data;
+	allocatorI * _alloc;
+	uint32_t _size;
+	
+	
+	inline varray(const uint32_t __size, allocatorI* __alloc = NULL) {
 		if STT_STL_LIKLEY(_size <= stackCapacity) {
-			data = (T*) &buff[0];
-			alloc = NULL;
-			size = _size;
+			_data = (T*) &buff[0];
+			_alloc = NULL;
+			_size = __size;
 			}
 		else {
-			const alloc_size_t wantsSize = _size*sizeof(T);
-			alloc = _alloc;
-			if (!alloc)
-				alloc = crt_allocator::getStaticCrtAllocator();
-			data = (T*) alloc->allocate(wantsSize);
-			size = _size;
+			const alloc_size_t wantsSize = __size*sizeof(T);
+			_alloc = __alloc;
+			if (!_alloc)
+				_alloc = crt_allocator::getStaticCrtAllocator();
+			_data = (T*) _alloc->allocate(wantsSize);
+			_size = __size;
 			}
 		if constexpr (requires_fill_on_resize<T>::value) {
-			objectFillRangeInPlace<T>(&data[0], &data[size]);
+			objectFillRangeInPlace<T>(&_data[0], &_data[_size]);
 			}
 		}
-}
-namespace stt
-{
-  template <typename T, uint32_t stackCapacity>
-  varray <T, stackCapacity>::~ varray ()
-                  {
+		
+	inline ~varray() {
 		if constexpr (requires_destroy_on_resize<T>::value) {
-			objectDestroyRange<T>(&data[0], &data[size]);
+			objectDestroyRange<T>(&_data[0], &_data[_size]);
 			}
-		if (alloc)
-			alloc->deallocate((uint8_t*) data, size*sizeof(T));
+		if (_alloc)
+			_alloc->deallocate((uint8_t*) _data, _size*sizeof(T));
 		}
+	
+	inline T& operator [] (const uint32_t idx) { return _data[idx]; }
+	inline const T& operator [] (const uint32_t idx) const { return _data[idx]; }
+	inline T* data() { return (T*) &data[0]; }
+	inline const T* data() const { return (T*) &data[0]; }
+	inline storage_size_t size() const noexcept { return _size; }
+	inline storage_size_t length() const noexcept { return _size; }
+	
+	inline const_iterator cbegin() const noexcept { return const_iterator(data()); }
+	inline const_iterator cend()   const noexcept { return const_iterator(data() + size()); };
+	inline const_iterator begin() const noexcept { return const_iterator(data()); }
+	inline const_iterator end()   const noexcept { return const_iterator(data() + size()); };
+	inline iterator begin() noexcept { return iterator(data()); }
+	inline iterator end()   noexcept { return iterator(data() + size()); }
+	};
 }
-namespace stt
-{
-  template <typename T, uint32_t stackCapacity>
-  LZZ_INLINE T & varray <T, stackCapacity>::operator [] (uint32_t const idx)
-                                                   { return data[idx]; }
-}
-namespace stt
-{
-  template <typename T, uint32_t stackCapacity>
-  LZZ_INLINE T const & varray <T, stackCapacity>::operator [] (uint32_t const idx) const
-                                                               { return data[idx]; }
-}
+#define LZZ_INLINE inline
 #undef LZZ_INLINE
 #endif
 #undef LZZ_OVERRIDE
