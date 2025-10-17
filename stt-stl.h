@@ -1994,7 +1994,7 @@ public:
 	
 	
 	inline varray(const uint32_t __size, allocatorI* __alloc = NULL) {
-		if STT_STL_LIKLEY(_size <= stackCapacity) {
+		if STT_STL_LIKLEY(__size <= stackCapacity) {
 			_data = (T*) &buff[0];
 			_alloc = NULL;
 			_size = __size;
@@ -2020,10 +2020,10 @@ public:
 			_alloc->deallocate((uint8_t*) _data, _size*sizeof(T));
 		}
 	
-	inline T& operator [] (const uint32_t idx) { return _data[idx]; }
-	inline const T& operator [] (const uint32_t idx) const { return _data[idx]; }
-	inline T* data() { return (T*) &data[0]; }
-	inline const T* data() const { return (T*) &data[0]; }
+	inline T& operator [] (const uint32_t idx) noexcept { return _data[idx]; }
+	inline const T& operator [] (const uint32_t idx) const noexcept { return _data[idx]; }
+	inline T* data() noexcept { return (T*) &_data[0]; }
+	inline const T* data() const noexcept { return (T*) &_data[0]; }
 	inline storage_size_t size() const noexcept { return _size; }
 	inline storage_size_t length() const noexcept { return _size; }
 	

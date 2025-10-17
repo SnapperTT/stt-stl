@@ -36,7 +36,7 @@ public:
 	
 	
 	inline varray(const uint32_t __size, allocatorI* __alloc = NULL) {
-		if STT_STL_LIKLEY(_size <= stackCapacity) {
+		if STT_STL_LIKLEY(__size <= stackCapacity) {
 			_data = (T*) &buff[0];
 			_alloc = NULL;
 			_size = __size;
