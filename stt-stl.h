@@ -697,7 +697,7 @@ namespace stt
 				}
 			else {
 				uint8_t* r =  fallback ? fallback->allocate(size) : NULL; // bad alloc, out of buffer size
-				stt_dbg_log ("sst alloc FALLBACK %p, addr: %p, sz %i, [%i/%i]", this, r, int(size), int(mSize), int(mSeek));
+				//stt_dbg_log ("sst alloc FALLBACK %p, addr: %p, sz %i, [%i/%i]", this, r, int(size), int(mSize), int(mSeek));
 				return r;
 				}
 			}
