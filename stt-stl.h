@@ -2189,7 +2189,7 @@ namespace stt {
 		inline vector_base_traits(vector_base_traits&& other) {
 			// move construct -> use other's allocator
 			sso.init();
-			allocator_aware_move_assign(std::move(other), true);
+			allocator_aware_move_assign(std::move(other), false);
 			}
 			
 		inline vector_base_traits(const storage_size_t sz) {
