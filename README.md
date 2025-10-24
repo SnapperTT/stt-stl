@@ -52,13 +52,13 @@ C++17
 As data structures use stateful allocators we must be aware of some ambiguities
 * If two containers have different allocators assigned then you cannot `std::move` between them. You can change this behaviour with the `STT_STL_CONTAINER_ALLOC_MOVE_MODE` macro (see `src/config.lzz`). Alternatively you can call `dst.allocator_aware_move_assign(std::move(src), false)` to force a move and skip checking.
 * `stt::vector<T>::push_back(T&& t)` will use `t`'s custom allocator if t is a stt-stl container (eg `stt::string`), and it has a custom allocator set. It will then do a move assign internally. You can disable this by using `push_back(const T& t)`, or by not using a custom allocator for t 
-* We use the following convention.
+* We use the following convention:
 	- Move Construct = intialise dst with src. Dst will be set to use src's allocator and the data will be transferred over.
 	- Move Assign: Move the *data* from src to dst. This is invalid if the internal allocators don't match
-* This behaviour is because move-construct is needed when a container is part of a larger struct, and that larger struct is pushed into a container itself. But move assign 
+* This behaviour is because move-construct is needed when a container is part of a larger struct, and that larger struct is pushed into a container itself. But the usual intent by move assign is to move the internal data from object src to object dst - it is not clear if the intent is to store the data with dst's allocator or src's allocator. So this is only permitted when the allocators are the same
 
 ```C++
-	// either move or copy
+	// either move or copy contained data
 	stt::string a; a.setAllocator(alloc)
 	stt::string b;
 	if (a.getCustomAllocator() == b.getCustomAllocator())
@@ -66,17 +66,19 @@ As data structures use stateful allocators we must be aware of some ambiguities
 	else
 		b = a; // cannot std::move, instead copy b's contents into a using a's allocator
 	
-	// std::move by structure
+	// move by structure
 	stt::string a; a.setAllocator(alloc);
 	stt::string b(std::move(a)); // <--- make B the new A, move the structure. A is now invalid
-	b.getCustomAllocator() == &alloc; // true;
+	assert(b.getCustomAllocator() == alloc); // true;
 	
 	// force std::move by structure
 	stt::string a; a.setAllocator(alloc)
 	stt::string b;
 	b.allocator_aware_move_assign(std::move(a), false); // <-- move A->B, skipping allocator checks. I assume you know what you're doing here
-	b.getCustomAllocator() == &alloc; // true;
+	assert(b.getCustomAllocator() == &alloc); // true;
 ```
+
+None of this matters if you are not using custom allocators.
 
 ## Building:
 This is a single header library. `#include "stt-stl.hh"`, and `#define STT_STL_IMPL 1` in ONE compilation unit.
