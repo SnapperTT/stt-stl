@@ -2080,7 +2080,12 @@ public:
 //#include <iterator>
 
 
-namespace stt {	
+namespace stt {
+	template <typename T> auto has__sttstl_getCustomAllocator_impl(int) -> decltype(std::declval<T>().__sttstl_getCustomAllocator(), std::true_type{});
+	template <typename T> auto has__sttstl_getCustomAllocator_impl(...) -> std::false_type;
+	template <typename T>
+	using has__sttstl_getCustomAllocator = decltype(has__sttstl_getCustomAllocator_impl<T>(0));
+	
 	template<typename V, typename T, unsigned int N>
 	struct vector_ref_impl;
 
@@ -2182,8 +2187,9 @@ namespace stt {
 			}
 		
 		inline vector_base_traits(vector_base_traits&& other) {
+			// move construct -> use other's allocator
 			sso.init();
-			*this = std::move(other);
+			allocator_aware_move_assign(std::move(other), true);
 			}
 			
 		inline vector_base_traits(const storage_size_t sz) {
@@ -2247,19 +2253,25 @@ namespace stt {
 			return *this;
 			}
 		
-		vector_base_traits& operator = (vector_base_traits&& other) {
-			//printf("move construct\n");
+		inline vector_base_traits& operator = (vector_base_traits&& other) {
+			return allocator_aware_move_assign(std::move(other), false);
+			}
+			
+		vector_base_traits& allocator_aware_move_assign (vector_base_traits&& other, const bool allowRawMove) {
+			//printf("move assign\n");
 			allocatorI* a = other.getCustomAllocator();
-			#if STT_STL_CONTAINER_ALLOC_MOVE_MODE != STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
-			if (a != getCustomAllocator()) {
-				#if STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
-					STT_STL_ASSERT(false, "Move assign between vectors using different allocators. Either set the same allocator before move assign, or change the STT_STL_CONTAINER_ALLOC_MOVE_MODE macro setting");
-				#elif STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
-					batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
-					return *this;
+			if (!allowRawMove) {
+				#if STT_STL_CONTAINER_ALLOC_MOVE_MODE != STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_ALLOWED
+				if (a != getCustomAllocator()) {
+					#if STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
+						STT_STL_ASSERT(false, "Move assign between vectors using different allocators. Either set the same allocator before move assign, or change the STT_STL_CONTAINER_ALLOC_MOVE_MODE macro setting");
+					#elif STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+						batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
+						return *this;
+					#endif
+					}
 				#endif
 				}
-			#endif
 			if ((!other.sso.useSso()) && (a || other.sso.size() > sso.capacity())) {
 				// Other is using store, just move store variable
 				sso.clearAndDeallocate();
@@ -2272,7 +2284,7 @@ namespace stt {
 			batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
 			return *this;
 			}
-			
+		
 			
 
 		void assign (const T* first, const T* last) {
@@ -2291,6 +2303,7 @@ namespace stt {
 		
 		inline void setAllocator(allocatorI * alloc) { sso.setAllocator(alloc); }
 		inline allocatorI* getCustomAllocator() const { return (sso.useSso() ? NULL : sso.d.store.mAllocator); } // returns the custom allocator object, if set. If no custom allocator has been set return NULL
+		inline allocatorI* __sttstl_getCustomAllocator() const { return getCustomAllocator(); }	// different signature to detect stt stl containers
 		
 		inline T& at	   (const storage_size_t idx) noexcept       { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
 		inline const T& at (const storage_size_t idx) const noexcept { if (idx >= size()) { stt::error::array_out_of_bounds(idx, size()); }; return *this[idx]; }
@@ -2350,9 +2363,21 @@ namespace stt {
 			constexpr storage_size_t stride = sizeof(T);
 			uint8_t* ptr = sso.reserve(sso.size() + stride, stride);
 			
-			new (ptr) T(std::move(t)); // move construct in place
-			//*((T*) ptr) = std::move(t);
+			// Is T a stt container with a custom allocator?
+			// we need to set the custom allocator
+			if constexpr(false && has__sttstl_getCustomAllocator<T>::value) {
+				// Allocator aware move construct
+				stt::allocatorI* alloc = t.getCustomAllocator();
+				if (alloc) {
+					new (ptr) T;
+					T* dst = (T*) ptr;
+					dst->setAllocator(t.getCustomAllocator());
+					*dst = std::move(t);
+					writeNullTerminator(ptr+1);
+					}
+				}
 			
+			new (ptr) T(std::move(t)); // move construct in place
 			writeNullTerminator(ptr+1);
 			}
 			

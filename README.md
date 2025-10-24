@@ -36,7 +36,6 @@ C++17
 ## Limitiations:
 * Max size of 2^32-1 in bytes of each container (size_t is uint32_t). If you need more than 4GB then use another container.
 
-
 ## Objectives:
 * Prevent lots of unnesccary allocations
 * Standardise sizeof(string) across platforms and compilers
@@ -49,6 +48,43 @@ C++17
 * SSO will only work in vectors for trivially copyable objects (objects that can be safely mem-copyied). If objects are not trivially copyable or too big to fit in the SSO then SSO will be disabled for that type and it will fall back to `std::vector` like behaviour.
 * Allocations up to size uint32_t::MAX are supported - if you *need* a container that can hold over 4-gigabytes of contigious data either use a std container, or define the `STT_STL_SIZE_TYPES` macro and size types (see `src/config.lzz`)
 
+## Move semantics with custom allocators:
+As data structures use stateful allocators we must be aware of some ambiguities
+* If two containers have different allocators assigned then you cannot `std::move` between them. You can change this behaviour with the `STT_STL_CONTAINER_ALLOC_MOVE_MODE` macro (see `src/config.lzz`). Alternatively you can call `dst.allocator_aware_move_assign(std::move(src), false)` to force a move and skip checking.
+* `stt::vector<T>::push_back(T&& t)` will use `t`'s custom allocator if t is a stt-stl container (eg `stt::string`), and it has a custom allocator set. It will then do a move assign internally. You can disable this by using `push_back(const T& t)`, or by not using a custom allocator for t 
+* We use the following convention.
+	- Move Construct = intialise dst with src. Dst will be set to use src's allocator and the data will be transferred over.
+	- Move Assign: Move the *data* from src to dst. This is invalid if the internal allocators don't match
+* This behaviour is because move-construct is needed when a container is part of a larger struct, and that larger struct is pushed into a container itself. But move assign 
+
+```C++
+	// std::move by value
+	string a; a.setAllocator(&alloc)
+	string b;
+	b = std::move(a); // <-- MEANING: move the CONTENTS of a into b. 
+	                  // This is only legal if b.getCustomAllocator() == a.getCustomAllocator()
+	                  // This will trigger an assert unless you set STT_STL_CONTAINER_ALLOC_MOVE_MODE
+	b.getCustomAllocator() == &alloc; // false;
+	b.setAllocator(&alloc);
+	b = std::move(a); // Ok! The use the same allocator so the internal pointers are set accordingly
+	
+	
+	// std::move by structure
+	string a; a.setAllocator(&alloc);
+	string b(std::move(a)); // <--- make B the new A, move the structure. A is now invalid
+	b.getCustomAllocator() == &alloc; // true;
+	
+	// force std::move by structure
+	string a; a.setAllocator(&alloc)
+	string b;
+	b.allocator_aware_move_assign(std::move(a), false); // <-- move A->B, skipping allocator checks. I assume you know what you're doing here
+	b.getCustomAllocator() == &alloc; // true;
+	
+	// either move or copy
+	string a; a.setAllocator(&alloc)
+	string b;
+	stt::allocator_aware_move_assign(a, b); // Moves b->a, using a's allocator. If a->alloc == b->alloc then its a std::move, otherwise its a copy
+```
 
 ## Building:
 This is a single header library. `#include "stt-stl.hh"`, and `#define STT_STL_IMPL 1` in ONE compilation unit.
