@@ -28,6 +28,20 @@
 	#define STT_STL_DEBUG_MEMORY 0
 #endif
 
+// Allocators
+// If set to zero move assignments from strings/vectors with different custom allocators are allowed
+// stt::vector a<T>(&someAlloc);
+// a.push_back(...);
+// stt::vector<T> b;
+// b = std::move(a);
+#define STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_ALLOWED 0 // b now uses someAlloc
+#define STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL   1 // fires an assert
+#define STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY    2 // b copies a's contents using its allocator. If T is move'able then all the T's in a will be std::move'd to a
+
+#ifndef STT_STL_CONTAINER_ALLOC_MOVE_MODE
+	#define STT_STL_CONTAINER_ALLOC_MOVE_MODE STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
+#endif
+
 // default allocator macro
 // - must be a pointer to a stt::allocatorI
 // - must be valid at compile time
@@ -2236,11 +2250,21 @@ namespace stt {
 		vector_base_traits& operator = (vector_base_traits&& other) {
 			//printf("move construct\n");
 			allocatorI* a = other.getCustomAllocator();
+			#if STT_STL_CONTAINER_ALLOC_MOVE_MODE != STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+			if (a != getCustomAllocator()) {
+				#if STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
+					STT_STL_ASSERT(false, "Move assign between vectors using different allocators. Either set the same allocator before move assign, or change the STT_STL_CONTAINER_ALLOC_MOVE_MODE macro setting");
+				#elif STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+					batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
+					return *this;
+				#endif
+				}
+			#endif
 			if ((!other.sso.useSso()) && (a || other.sso.size() > sso.capacity())) {
 				// Other is using store, just move store variable
 				sso.clearAndDeallocate();
-				sso.disableSsoFlag();
 				sso.d.store = other.sso.d.store;
+				sso.disableSsoFlag();
 				other.sso.init(); // reset to an empty container without calling destructors
 				return *this;
 				}
@@ -3221,11 +3245,24 @@ public:
 			// 2. if other is on the heap and can fit, pack into this sso and free heap
 			// 3. else copy other sso to this sso
 			
+			// We can only move if we are using the same allocator
+			
 			//printf("move assign impl! %i [%s]", other.size(), other.c_str());
-				
+			allocatorI* a = other.getCustomAllocator();
+			#if STT_STL_CONTAINER_ALLOC_MOVE_MODE != STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+			if (a != this->getCustomAllocator()) {
+				#if STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
+					STT_STL_ASSERT(false, "Move assign between strings using different allocators. Either set the same allocator before move assign, or change the STT_STL_CONTAINER_ALLOC_MOVE_MODE macro setting");
+				#elif STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+					assign(other.data(), other.size()); // copy the string
+					return;
+				#endif
+				}
+			#endif
+			
 			if (!other.isUsingSso()) {
 				// steal the data
-				if (other.size() > this->sso.local_capcity()) {
+				if ((other.size() > this->sso.local_capcity()) || a) {
 					//printf("stealing store!");
 					if (!this->isUsingSso())
 						this->sso.d.store.deallocate();

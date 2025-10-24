@@ -526,11 +526,24 @@ public:
 			// 2. if other is on the heap and can fit, pack into this sso and free heap
 			// 3. else copy other sso to this sso
 			
+			// We can only move if we are using the same allocator
+			
 			//printf("move assign impl! %i [%s]", other.size(), other.c_str());
-				
+			allocatorI* a = other.getCustomAllocator();
+			#if STT_STL_CONTAINER_ALLOC_MOVE_MODE != STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+			if (a != this->getCustomAllocator()) {
+				#if STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
+					STT_STL_ASSERT(false, "Move assign between strings using different allocators. Either set the same allocator before move assign, or change the STT_STL_CONTAINER_ALLOC_MOVE_MODE macro setting");
+				#elif STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
+					assign(other.data(), other.size()); // copy the string
+					return;
+				#endif
+				}
+			#endif
+			
 			if (!other.isUsingSso()) {
 				// steal the data
-				if (other.size() > this->sso.local_capcity()) {
+				if ((other.size() > this->sso.local_capcity()) || a) {
 					//printf("stealing store!");
 					if (!this->isUsingSso())
 						this->sso.d.store.deallocate();

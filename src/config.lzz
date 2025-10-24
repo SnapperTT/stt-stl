@@ -20,6 +20,20 @@
 	#define STT_STL_DEBUG_MEMORY 0
 #endif
 
+// Allocators
+// If set to zero move assignments from strings/vectors with different custom allocators are allowed
+// stt::vector a<T>(&someAlloc);
+// a.push_back(...);
+// stt::vector<T> b;
+// b = std::move(a);
+#define STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_ALLOWED 0 // b now uses someAlloc
+#define STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL   1 // fires an assert
+#define STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY    2 // b copies a's contents using its allocator. If T is move'able then all the T's in a will be std::move'd to a
+
+#ifndef STT_STL_CONTAINER_ALLOC_MOVE_MODE
+	#define STT_STL_CONTAINER_ALLOC_MOVE_MODE STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_FATAL
+#endif
+
 // default allocator macro
 // - must be a pointer to a stt::allocatorI
 // - must be valid at compile time
