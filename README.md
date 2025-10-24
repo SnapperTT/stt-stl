@@ -58,32 +58,24 @@ As data structures use stateful allocators we must be aware of some ambiguities
 * This behaviour is because move-construct is needed when a container is part of a larger struct, and that larger struct is pushed into a container itself. But move assign 
 
 ```C++
-	// std::move by value
-	string a; a.setAllocator(&alloc)
-	string b;
-	b = std::move(a); // <-- MEANING: move the CONTENTS of a into b. 
-	                  // This is only legal if b.getCustomAllocator() == a.getCustomAllocator()
-	                  // This will trigger an assert unless you set STT_STL_CONTAINER_ALLOC_MOVE_MODE
-	b.getCustomAllocator() == &alloc; // false;
-	b.setAllocator(&alloc);
-	b = std::move(a); // Ok! The use the same allocator so the internal pointers are set accordingly
-	
+	// either move or copy
+	stt::string a; a.setAllocator(alloc)
+	stt::string b;
+	if (a.getCustomAllocator() == b.getCustomAllocator())
+		b = std::move(a); // ok!
+	else
+		b = a; // cannot std::move, instead copy b's contents into a using a's allocator
 	
 	// std::move by structure
-	string a; a.setAllocator(&alloc);
-	string b(std::move(a)); // <--- make B the new A, move the structure. A is now invalid
+	stt::string a; a.setAllocator(alloc);
+	stt::string b(std::move(a)); // <--- make B the new A, move the structure. A is now invalid
 	b.getCustomAllocator() == &alloc; // true;
 	
 	// force std::move by structure
-	string a; a.setAllocator(&alloc)
-	string b;
+	stt::string a; a.setAllocator(alloc)
+	stt::string b;
 	b.allocator_aware_move_assign(std::move(a), false); // <-- move A->B, skipping allocator checks. I assume you know what you're doing here
 	b.getCustomAllocator() == &alloc; // true;
-	
-	// either move or copy
-	string a; a.setAllocator(&alloc)
-	string b;
-	stt::allocator_aware_move_assign(a, b); // Moves b->a, using a's allocator. If a->alloc == b->alloc then its a std::move, otherwise its a copy
 ```
 
 ## Building:

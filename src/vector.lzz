@@ -284,25 +284,9 @@ namespace stt {
 			}
 			
 		void push_back(T__MVSEM t) {
-			// Push back, moving. Not allocator aware
+			// Push back, moving. Not allocator aware, this is a dumb move
 			constexpr storage_size_t stride = sizeof(T);
 			uint8_t* ptr = sso.reserve(sso.size() + stride, stride);
-			
-			#if 0 // This was a solution to a bug, however making the move constructor not allocator aware (a move assign without checking allocators) fixed this
-			// Is T a stt container with a custom allocator?
-			// we need to set the custom allocator
-			if constexpr(false && has__sttstl_getCustomAllocator<T>::value) {
-				// Allocator aware move construct
-				stt::allocatorI* alloc = t.getCustomAllocator();
-				if (alloc) {
-					new (ptr) T;
-					T* dst = (T*) ptr;
-					dst->setAllocator(t.getCustomAllocator());
-					*dst = std::move(t);
-					writeNullTerminator(ptr+1);
-					}
-				}
-			#endif
 			
 			new (ptr) T(std::move(t)); // move construct in place
 			writeNullTerminator(ptr+1);
