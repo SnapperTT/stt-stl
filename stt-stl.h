@@ -1704,7 +1704,10 @@ namespace stt
 	#define STT_PAGE_SIZE 4080	// this makes alignement better 
 #endif
 #ifndef STT_JUMBO_PAGE_SIZE
-	#define STT_JUMBO_PAGE_SIZE 65520
+	#define STT_JUMBO_PAGE_SIZE 65520	// 64k - 64
+#endif
+#ifndef STT_MEGA_PAGE_SIZE
+	#define STT_MEGA_PAGE_SIZE 2097088	// 2MB - 64
 #endif
 
 	
@@ -1715,6 +1718,7 @@ namespace stt
   {
     PAGE_TYPE_NORMAL,
     PAGE_TYPE_JUMBO,
+    PAGE_TYPE_MEGA,
     PAGE_TYPE_UNSET
   };
 }
@@ -1766,6 +1770,10 @@ namespace stt
 namespace stt
 {
   typedef pageTemplate <STT_JUMBO_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_JUMBO> jumboPageU;
+}
+namespace stt
+{
+  typedef pageTemplate <STT_MEGA_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_MEGA> megaPageU;
 }
 namespace stt
 {
@@ -1860,6 +1868,7 @@ namespace stt
 		switch (pt) {
 			case pageTypeEnum::PAGE_TYPE_NORMAL: return "Normal";
 			case pageTypeEnum::PAGE_TYPE_JUMBO: return "Jumbo";
+			case pageTypeEnum::PAGE_TYPE_MEGA: return "Jumbo";
 			default: return "Unset";
 			}
 		}

@@ -72,6 +72,17 @@ int main (int argc, char ** argv) {
 			}
 	}
 
+	// Test jumbo and giga
+	{
+	stt::jumboPageU* jp = stt::ThreadSafePageAllocator::allocJumboPage();
+	stt::megaPageU* gp = stt::ThreadSafePageAllocator::allocMegaPage();
+
+	stt::stt_dbg_log("Jumbo test: %p (%i bytes), Mega test: %p (%i bytes)\n", jp, int(jp->capacity()), gp, int(gp->capacity()));
+			
+	stt::ThreadSafePageAllocator::freeJumboPage(jp);
+	stt::ThreadSafePageAllocator::freeMegaPage(gp);
+	}
+
 	// Varray Test
 	struct AConstruct {
 		uint8_t a;
@@ -88,7 +99,7 @@ int main (int argc, char ** argv) {
 	{
 		stt::varray<AConstruct,10> AArr(5);
 		stt::varray<BDestruct,2> BArr(5);
-		stt::stt_dbg_log("A is heap: %b, B is heap: %b\n", AArr.alloc != NULL, BArr.alloc != NULL);
+		stt::stt_dbg_log("A is heap: %b, B is heap: %b\n", AArr._alloc != NULL, BArr._alloc != NULL);
 	}
 
 	// Cleanup - 

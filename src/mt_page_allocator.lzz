@@ -32,11 +32,13 @@ public:
 		if (!PD) return NULL;
 		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &PD->pageAlloc;
 		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &PD->jumboPageAlloc;
+		if (pe == pageTypeEnum::PAGE_TYPE_MEGA) return &PD->megaPageAlloc;
 		return NULL;
 		}
 	static BackendPagePool* getBackendPool(const pageTypeEnum pe) {
 		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &ThreadSafePageAllocatorImpl::get().PageGlobalFreeList;
 		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList;
+		if (pe == pageTypeEnum::PAGE_TYPE_MEGA) return &ThreadSafePageAllocatorImpl::get().MegaGlobalFreeList;
 		return NULL;
 		}
 	
@@ -74,6 +76,23 @@ public:
 	// Because a array of pages is internally converted into a linked list it is more efficent a linked list directly
 	static void freeJumboPagesList(jumboPageU* pageLinkedList) { ThreadSafePageAllocatorImpl::get().freeJumboPagesList(pageLinkedList); }
 	
+	// MegaPageU
+	static megaPageU* allocMegaPage() {
+		// Allocates a single pageU
+		megaPageU* arr[1];
+		ThreadSafePageAllocatorImpl::get().allocMegaPages(&arr[0], 1);
+		return arr[0];
+		}
+	static void freeMegaPage(megaPageU* page) {
+		megaPageU* arr[1];
+		arr[0] = page;
+		ThreadSafePageAllocatorImpl::get().freeMegaPages(&arr[0], 1);
+		}
+	static void allocMegaPages(megaPageU** pages, const uint32_t nPages) { ThreadSafePageAllocatorImpl::get().allocMegaPages(pages, nPages); }
+	static void freeMegaPages(megaPageU** pages, const uint32_t nPages)  { ThreadSafePageAllocatorImpl::get().freeMegaPages(pages, nPages); }
+	// Because a array of pages is internally converted into a linked list it is more efficent a linked list directly
+	static void freeMegaPagesList(megaPageU* pageLinkedList) { ThreadSafePageAllocatorImpl::get().freeMegaPagesList(pageLinkedList); }
+	
 	static int dbg_getNPagesAllocated() { return ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated; }
 	};
 	
@@ -97,5 +116,11 @@ namespace ThreadSafePageAllocatorTemplates {
 	template<> inline void allocGenericBatch(jumboPageU** t, const uint32_t n) { ThreadSafePageAllocator::allocJumboPages(t, n); }
 	template<> inline void freeGenericBatch (jumboPageU** t, const uint32_t n) { ThreadSafePageAllocator::freeJumboPages(t, n); }
 	template<> inline void freeGenericList(jumboPageU* t) { ThreadSafePageAllocator::freeJumboPagesList(t); }
+	
+	template<> inline megaPageU* allocGeneric()      { return ThreadSafePageAllocator::allocMegaPage(); }
+	template<> inline void freeGeneric(megaPageU* t) { ThreadSafePageAllocator::freeMegaPage(t); }
+	template<> inline void allocGenericBatch(megaPageU** t, const uint32_t n) { ThreadSafePageAllocator::allocMegaPages(t, n); }
+	template<> inline void freeGenericBatch (megaPageU** t, const uint32_t n) { ThreadSafePageAllocator::freeMegaPages(t, n); }
+	template<> inline void freeGenericList(megaPageU* t) { ThreadSafePageAllocator::freeMegaPagesList(t); }
 	}
 }

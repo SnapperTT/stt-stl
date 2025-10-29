@@ -149,6 +149,7 @@ namespace stt
   {
     ThreadLocalPagePool pageAlloc;
     ThreadLocalPagePool jumboPageAlloc;
+    ThreadLocalPagePool megaPageAlloc;
     PATL_Data ();
     ~ PATL_Data ();
   };
@@ -161,6 +162,7 @@ namespace stt
     STT_TLS_WRAPPER mTls;
     BackendPagePool PageGlobalFreeList;
     BackendPagePool JumboGlobalFreeList;
+    BackendPagePool MegaGlobalFreeList;
     static std::atomic <int> dbg_totalPagesAllocated;
     ThreadSafePageAllocatorImpl ();
     ~ ThreadSafePageAllocatorImpl ();
@@ -178,6 +180,9 @@ namespace stt
     void allocJumboPages (jumboPageU * * pages, uint32_t const nPages);
     void freeJumboPages (jumboPageU * * pages, uint32_t const nPages);
     void freeJumboPagesList (jumboPageU * pageList);
+    void allocMegaPages (megaPageU * * pages, uint32_t const nPages);
+    void freeMegaPages (megaPageU * * pages, uint32_t const nPages);
+    void freeMegaPagesList (megaPageU * pageList);
     static void systemAllocate (pageTypeEnum const mPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
     static void systemAllocate_impl (uint32_t const sizeofPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB);
     static uint32_t systemFreeList (pageHeader * head);
@@ -438,6 +443,8 @@ namespace stt
 				PassthroughPageAllocator::freeGenericList<pageU>(_insert);
 			else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
 				PassthroughPageAllocator::freeGenericList<jumboPageU>(_insert);
+			else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+				PassthroughPageAllocator::freeGenericList<megaPageU>(_insert);
 			else
 				STT_STL_ABORT();
 			return;
@@ -491,6 +498,8 @@ namespace stt
 				PassthroughPageAllocator::allocGeneric<pageU>(store, nPages);
 			else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
 				PassthroughPageAllocator::allocGeneric<jumboPageU>(store, nPages);
+			else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+				PassthroughPageAllocator::allocGeneric<megaPageU>(store, nPages);
 			else
 				STT_STL_ABORT();
 			for (uint32_t i = 1; i < nPages; ++i) {
@@ -592,6 +601,8 @@ namespace stt
 			return allocGeneric<pageU>(pages, nPages);
 		else if (pageType == pageTypeEnum::PAGE_TYPE_JUMBO) 
 			return allocGeneric<jumboPageU>(pages, nPages);
+		else if (pageType == pageTypeEnum::PAGE_TYPE_MEGA) 
+			return allocGeneric<megaPageU>(pages, nPages);
 		else
 			STT_STL_ABORT();
 		#endif
@@ -746,7 +757,7 @@ namespace stt
 			// we are out of pages, request pages from TSPA (locking)
 			const uint32_t countInit = count;
 			const uint32_t want = requestAmount + nPages - count;	// Batch size + (num needed for this request)
-			varray<pageHeader*, 1024> localStore(want);
+			varray<pageHeader*, 4096> localStore(want);
 			
 			#if STT_STL_DEBUG_PAGE
 				stt_dbg_log("ThreadLocalPagePool %s fetching from backend want: %i, nPages: %i, count: %i, (nPages - countInit): %i, requestAmount: %i\n", getThreadLabel(), want, nPages, count, (nPages-countInit), requestAmount);
@@ -756,6 +767,8 @@ namespace stt
 				ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.bulkFetch(&localStore[0], want);
 			else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
 				ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList.bulkFetch(&localStore[0], want);
+			else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+				ThreadSafePageAllocatorImpl::get().MegaGlobalFreeList.bulkFetch(&localStore[0], want);
 			else
 				STT_STL_ABORT();
 			
@@ -811,6 +824,8 @@ namespace stt
 			return PassthroughPageAllocator::freeGeneric<jumboPageU>(pages, nPages);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
 			return PassthroughPageAllocator::freeGeneric<pageU>(pages, nPages);	
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+			return PassthroughPageAllocator::freeGeneric<megaPageU>(pages, nPages);	
 		else
 			STT_STL_ABORT();
 		#endif
@@ -828,6 +843,8 @@ namespace stt
 			return PassthroughPageAllocator::freeGenericList<jumboPageU>(pagesLinkedList);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_NORMAL)
 			return PassthroughPageAllocator::freeGenericList<pageU>(pagesLinkedList);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+			return PassthroughPageAllocator::freeGenericList<megaPageU>(pagesLinkedList);
 		else
 			STT_STL_ABORT();
 		#endif
@@ -875,6 +892,8 @@ namespace stt
 			ThreadSafePageAllocatorImpl::get().PageGlobalFreeList.atomicMerge(returnList, nReturned);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
 			ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList.atomicMerge(returnList, nReturned);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+			ThreadSafePageAllocatorImpl::get().MegaGlobalFreeList.atomicMerge(returnList, nReturned);
 		else
 			STT_STL_ABORT();
 		}
@@ -889,6 +908,7 @@ namespace stt
 		int threadId = ThreadLocalPagePool::staticNextId++;
 		pageAlloc.init(pageTypeEnum::PAGE_TYPE_NORMAL, threadId);
 		jumboPageAlloc.init(pageTypeEnum::PAGE_TYPE_JUMBO, threadId);
+		megaPageAlloc.init(pageTypeEnum::PAGE_TYPE_MEGA, threadId);
 		}
 }
 namespace stt
@@ -910,7 +930,7 @@ namespace stt
                                       {
 		PageGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_NORMAL, 10);
 		JumboGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_JUMBO, 1);
-		
+		MegaGlobalFreeList.init (pageTypeEnum::PAGE_TYPE_MEGA, 1);
 		
 		initThreadLocalPools(); // init for this thread
 		}
@@ -1061,6 +1081,48 @@ namespace stt
 }
 namespace stt
 {
+  void ThreadSafePageAllocatorImpl::allocMegaPages (megaPageU * * pages, uint32_t const nPages)
+                                                                      {
+		PATL_Data* LA = getThreadLocalPools();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: allocMegaPages() without thread_local pools, using global pool");
+			MegaGlobalFreeList.bulkFetch((pageHeader**) pages, nPages);
+			return;
+			}
+		LA->megaPageAlloc.allocPages((pageHeader**) pages, nPages);
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocatorImpl::freeMegaPages (megaPageU * * pages, uint32_t const nPages)
+                                                                     {
+		PATL_Data* LA = getThreadLocalPools();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freeJumboPages() without thread_local pools, using global pool");
+			MegaGlobalFreeList.freePages((pageHeader**) pages, nPages);
+			return;
+			}
+		LA->megaPageAlloc.freePages((pageHeader**) pages, nPages);
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocatorImpl::freeMegaPagesList (megaPageU * pageList)
+                                                    {
+		PATL_Data* LA = getThreadLocalPools();
+		if (!LA) {
+			// free after TL shutdown!
+			perf_warning("PERF: freeJumboPagesList() without thread_local pools, using global pool");
+			MegaGlobalFreeList.atomicMerge((pageHeader*) pageList);
+			return;
+			}
+		LA->megaPageAlloc.freePagesList((pageHeader*) pageList);
+		}
+}
+namespace stt
+{
   void ThreadSafePageAllocatorImpl::systemAllocate (pageTypeEnum const mPageType, uint32_t const nPagesTotal, uint32_t const nSplit, pageHeader * * groupA, pageHeader * * groupB)
                                                                                                                                                               {
 		// Group A & B are pointers to pointers, NOT arrays of pointers
@@ -1068,6 +1130,8 @@ namespace stt
 			systemAllocate_impl(sizeof(pageU), nPagesTotal, nSplit, groupA, groupB);
 		else if (mPageType == pageTypeEnum::PAGE_TYPE_JUMBO)
 			systemAllocate_impl(sizeof(jumboPageU), nPagesTotal, nSplit, groupA, groupB);
+		else if (mPageType == pageTypeEnum::PAGE_TYPE_MEGA)
+			systemAllocate_impl(sizeof(megaPageU), nPagesTotal, nSplit, groupA, groupB);
 		else
 			STT_STL_ABORT();
 		}
@@ -1078,7 +1142,7 @@ namespace stt
                                                                                                                                                                     {
 		// Group A & B are pointers to pointers, NOT arrays of pointers
 		// allocates at least nPagesTotal, and returns (nSplit) into linked list groupA and the rest into linked list groupB
-		varray<pageHeader*, 1024> ph(nPagesTotal);
+		varray<pageHeader*, 4096> ph(nPagesTotal);
 		
 		ph[0] = (pageHeader*) raw_alloc(sizeofPageType);
 		for (uint i = 1; i < nPagesTotal; ++i) {
@@ -1183,6 +1247,11 @@ namespace stt
     static void allocJumboPages (jumboPageU * * pages, uint32_t const nPages);
     static void freeJumboPages (jumboPageU * * pages, uint32_t const nPages);
     static void freeJumboPagesList (jumboPageU * pageLinkedList);
+    static megaPageU * allocMegaPage ();
+    static void freeMegaPage (megaPageU * page);
+    static void allocMegaPages (megaPageU * * pages, uint32_t const nPages);
+    static void freeMegaPages (megaPageU * * pages, uint32_t const nPages);
+    static void freeMegaPagesList (megaPageU * pageLinkedList);
     static int dbg_getNPagesAllocated ();
   };
 }
@@ -1304,6 +1373,46 @@ namespace stt
   {
     template <>
     void freeGenericList (jumboPageU * t);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    megaPageU * allocGeneric ();
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void freeGeneric (megaPageU * t);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void allocGenericBatch (megaPageU * * t, uint32_t const n);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void freeGenericBatch (megaPageU * * t, uint32_t const n);
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    void freeGenericList (megaPageU * t);
   }
 }
 namespace stt
@@ -1441,6 +1550,51 @@ namespace stt
                                                               { ThreadSafePageAllocator::freeJumboPagesList(t); }
   }
 }
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE megaPageU * allocGeneric ()
+                                                         { return ThreadSafePageAllocator::allocMegaPage(); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void freeGeneric (megaPageU * t)
+                                                         { ThreadSafePageAllocator::freeMegaPage(t); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void allocGenericBatch (megaPageU * * t, uint32_t const n)
+                                                                                  { ThreadSafePageAllocator::allocMegaPages(t, n); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void freeGenericBatch (megaPageU * * t, uint32_t const n)
+                                                                                  { ThreadSafePageAllocator::freeMegaPages(t, n); }
+  }
+}
+namespace stt
+{
+  namespace ThreadSafePageAllocatorTemplates
+  {
+    template <>
+    LZZ_INLINE void freeGenericList (megaPageU * t)
+                                                             { ThreadSafePageAllocator::freeMegaPagesList(t); }
+  }
+}
 #undef LZZ_INLINE
 #endif
 #undef LZZ_OVERRIDE
@@ -1498,6 +1652,7 @@ namespace stt
 		if (!PD) return NULL;
 		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &PD->pageAlloc;
 		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &PD->jumboPageAlloc;
+		if (pe == pageTypeEnum::PAGE_TYPE_MEGA) return &PD->megaPageAlloc;
 		return NULL;
 		}
 }
@@ -1507,6 +1662,7 @@ namespace stt
                                                                       {
 		if (pe == pageTypeEnum::PAGE_TYPE_NORMAL) return &ThreadSafePageAllocatorImpl::get().PageGlobalFreeList;
 		if (pe == pageTypeEnum::PAGE_TYPE_JUMBO) return &ThreadSafePageAllocatorImpl::get().JumboGlobalFreeList;
+		if (pe == pageTypeEnum::PAGE_TYPE_MEGA) return &ThreadSafePageAllocatorImpl::get().MegaGlobalFreeList;
 		return NULL;
 		}
 }
@@ -1580,6 +1736,40 @@ namespace stt
 }
 namespace stt
 {
+  megaPageU * ThreadSafePageAllocator::allocMegaPage ()
+                                          {
+		// Allocates a single pageU
+		megaPageU* arr[1];
+		ThreadSafePageAllocatorImpl::get().allocMegaPages(&arr[0], 1);
+		return arr[0];
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::freeMegaPage (megaPageU * page)
+                                                  {
+		megaPageU* arr[1];
+		arr[0] = page;
+		ThreadSafePageAllocatorImpl::get().freeMegaPages(&arr[0], 1);
+		}
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::allocMegaPages (megaPageU * * pages, uint32_t const nPages)
+                                                                             { ThreadSafePageAllocatorImpl::get().allocMegaPages(pages, nPages); }
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::freeMegaPages (megaPageU * * pages, uint32_t const nPages)
+                                                                             { ThreadSafePageAllocatorImpl::get().freeMegaPages(pages, nPages); }
+}
+namespace stt
+{
+  void ThreadSafePageAllocator::freeMegaPagesList (megaPageU * pageLinkedList)
+                                                                 { ThreadSafePageAllocatorImpl::get().freeMegaPagesList(pageLinkedList); }
+}
+namespace stt
+{
   int ThreadSafePageAllocator::dbg_getNPagesAllocated ()
                                             { return ThreadSafePageAllocatorImpl::dbg_totalPagesAllocated; }
 }
@@ -1603,7 +1793,10 @@ namespace stt
 	#define STT_PAGE_SIZE 4080	// this makes alignement better 
 #endif
 #ifndef STT_JUMBO_PAGE_SIZE
-	#define STT_JUMBO_PAGE_SIZE 65520
+	#define STT_JUMBO_PAGE_SIZE 65520	// 64k - 64
+#endif
+#ifndef STT_MEGA_PAGE_SIZE
+	#define STT_MEGA_PAGE_SIZE 2097088	// 2MB - 64
 #endif
 
 	
@@ -1614,6 +1807,7 @@ namespace stt
   {
     PAGE_TYPE_NORMAL,
     PAGE_TYPE_JUMBO,
+    PAGE_TYPE_MEGA,
     PAGE_TYPE_UNSET
   };
 }
@@ -1665,6 +1859,10 @@ namespace stt
 namespace stt
 {
   typedef pageTemplate <STT_JUMBO_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_JUMBO> jumboPageU;
+}
+namespace stt
+{
+  typedef pageTemplate <STT_MEGA_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_MEGA> megaPageU;
 }
 namespace stt
 {
@@ -1759,6 +1957,7 @@ namespace stt
 		switch (pt) {
 			case pageTypeEnum::PAGE_TYPE_NORMAL: return "Normal";
 			case pageTypeEnum::PAGE_TYPE_JUMBO: return "Jumbo";
+			case pageTypeEnum::PAGE_TYPE_MEGA: return "Jumbo";
 			default: return "Unset";
 			}
 		}
