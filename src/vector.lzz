@@ -191,6 +191,7 @@ namespace stt {
 						STT_STL_ASSERT(false, "Move assign between vectors using different allocators. Either set the same allocator before move assign, or change the STT_STL_CONTAINER_ALLOC_MOVE_MODE macro setting");
 					#elif STT_STL_CONTAINER_ALLOC_MOVE_MODE == STT_STL_CONTAINER_ALLOC_MOVE_ASSIGN_COPY
 						batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
+						other.resize_no_zero_initialise(0); // contents of other are now invalid
 						return *this;
 					#endif
 					}
@@ -206,6 +207,7 @@ namespace stt {
 				}
 			sso.clear();
 			batch_append_move(other.data(), other.size()); // call std::move on all elements and leave other alone
+			other.resize_no_zero_initialise(0); // contents of other are now invalid
 			return *this;
 			}
 		
