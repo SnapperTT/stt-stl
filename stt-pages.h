@@ -1835,6 +1835,13 @@ namespace stt
     int listLength ();
     uint8_t * toPayload ();
     static pageHeader * fromPayload (uint8_t * ptr);
+    bool bit_test (uint32_t const index) const;
+    void bit_set (uint32_t const index);
+    void bit_clear (uint32_t const i);
+    static int find_first_set_bit_u64 (uint64_t const word);
+    int bit_get_first_free_slot () const;
+    uint8_t * bitmap_allocate (uint8_t * base, uint32_t const blockSize, uint32_t const maxSlots);
+    void bitmap_free (uint8_t * ptr, uint8_t * base, uint32_t const blockSize, uint32_t const maxSlots);
   };
 }
 namespace stt
@@ -1850,6 +1857,10 @@ namespace stt
     static constexpr size_t capacity ();
     static constexpr size_t storageSize ();
     static constexpr pageTypeEnum getPageType ();
+    template <int BLOCK_SIZE>
+    uint8_t * bitmap_allocate ();
+    template <int BLOCK_SIZE>
+    void bitmap_free (uint8_t const * m_ptr, uint32_t const blockSize);
   };
 }
 namespace stt
@@ -1898,6 +1909,50 @@ namespace stt
 }
 namespace stt
 {
+  LZZ_INLINE bool pageHeader::bit_test (uint32_t const index) const
+                                                                 {
+			// When userdata is used as a bitmap for the data
+			// this returns if bit index 
+			return (userData[index >> 6] >> (index & 63)) & 1ULL;
+			}
+}
+namespace stt
+{
+  LZZ_INLINE void pageHeader::bit_set (uint32_t const index)
+                                                          {
+			userData[index >> 6] |= (1ULL << (index & 63));
+			}
+}
+namespace stt
+{
+  LZZ_INLINE void pageHeader::bit_clear (uint32_t const i)
+                                                        {
+			userData[i >> 6] &= ~(1ULL << (i & 63));
+			}
+}
+namespace stt
+{
+  LZZ_INLINE int pageHeader::find_first_set_bit_u64 (uint64_t const word)
+                                                                              {
+			#if defined(_MSC_VER)
+				unsigned long index;
+				if (_BitScanForward64(&index, word))
+					return (int)index;
+				return -1;
+
+			#elif defined(__GNUC__) || defined(__clang__)
+				return __builtin_ctzll(word);
+
+			#else
+				for (int i = 0; i < 64; ++i)
+					if ((word >> i) & 1ULL)
+						return i;
+				return -1;
+			#endif
+			}
+}
+namespace stt
+{
   template <unsigned int SIZE, pageTypeEnum ET>
   LZZ_INLINE void pageTemplate <SIZE, ET>::initHeader ()
                                          { ph.initToZero(); ph.allocationInfo = SIZE; }
@@ -1931,6 +1986,26 @@ namespace stt
   template <unsigned int SIZE, pageTypeEnum ET>
   constexpr pageTypeEnum pageTemplate <SIZE, ET>::getPageType ()
                                                                  { return ET; }
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  template <int BLOCK_SIZE>
+  uint8_t * pageTemplate <SIZE, ET>::bitmap_allocate ()
+                                           {
+			constexpr uint32_t maxSlots = capacity()/BLOCK_SIZE;
+			return ph.bitmap_allocate(ptr(), BLOCK_SIZE, maxSlots < 256 ? maxSlots : 256);
+			}
+}
+namespace stt
+{
+  template <unsigned int SIZE, pageTypeEnum ET>
+  template <int BLOCK_SIZE>
+  void pageTemplate <SIZE, ET>::bitmap_free (uint8_t const * m_ptr, uint32_t const blockSize)
+                                                                                 {
+			constexpr uint32_t maxSlots = capacity()/BLOCK_SIZE;
+			return ph.bitmap_allocate(m_ptr, ptr(), BLOCK_SIZE, maxSlots < 256 ? maxSlots : 256);
+			}
 }
 #undef LZZ_INLINE
 #endif
@@ -2055,6 +2130,48 @@ namespace stt
 			int cnt = 0;
 			endCounting(cnt);
 			return cnt;
+			}
+}
+namespace stt
+{
+  int pageHeader::bit_get_first_free_slot () const
+                                                    {
+			for (int i = 0; i < 4; ++i) {
+				int r = find_first_set_bit_u64(userData[i]);
+				if (r >= 0)
+					return r + i*64;
+				}
+			return -1;
+			}
+}
+namespace stt
+{
+  uint8_t * pageHeader::bitmap_allocate (uint8_t * base, uint32_t const blockSize, uint32_t const maxSlots)
+                                                                                                           {
+			uint32_t freeSlotIdx = bit_get_first_free_slot();
+			if (freeSlotIdx >= maxSlots) return NULL;
+			if (bit_test(freeSlotIdx)) {
+				stt::error::bad_alloc(blockSize, "double alloc (internal bug)"); // should never be reached
+				return NULL;
+				}
+			bit_set(freeSlotIdx);
+			return &base[blockSize*freeSlotIdx];
+			}
+}
+namespace stt
+{
+  void pageHeader::bitmap_free (uint8_t * ptr, uint8_t * base, uint32_t const blockSize, uint32_t const maxSlots)
+                                                                                                                 {
+			uint32_t slotIdx = (ptr - base)/blockSize;
+			if (slotIdx >= maxSlots) {
+				stt::error::bad_free(ptr, "free out of bounds");
+				return; // out of bounds
+				}
+			if (!bit_test(slotIdx)) {
+				stt::error::bad_free(ptr, "double free");
+				return; // double free
+				}
+			bit_clear(slotIdx);
 			}
 }
 #undef LZZ_INLINE

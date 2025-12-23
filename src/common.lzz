@@ -185,7 +185,13 @@ namespace stt {
 			}
 		
 		void bad_alloc(const alloc_size_t size, const char* message) {
-			STT_STL_ASSERT(0, "index < size (check message)");
+			stt_dbg_log(message);
+			STT_STL_ASSERT(0, "bad_alloc (check message)");
+			}
+			
+		void bad_free(const uint8_t* ptr, const char* message) {
+			stt_dbg_log(message);
+			STT_STL_ASSERT(0, "bad_free (check message)");
 			}
 		}
 	}

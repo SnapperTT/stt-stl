@@ -151,8 +151,76 @@ namespace stt {
 			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
 			return (pageHeader*) &ptr[-STT_PAGE_HEADER_SIZE];
 			}
-		};
-	
+		
+		////////////////////////////////////////////////////////////////
+		// bitmap allocator stuff
+		
+		inline bool bit_test(const uint32_t index) const {
+			// When userdata is used as a bitmap for the data
+			// this returns if bit index 
+			return (userData[index >> 6] >> (index & 63)) & 1ULL;
+			}
+
+		inline void bit_set(const uint32_t index) {
+			userData[index >> 6] |= (1ULL << (index & 63));
+			}
+
+		inline void bit_clear(const uint32_t i) {
+			userData[i >> 6] &= ~(1ULL << (i & 63));
+			}
+			
+		static inline int find_first_set_bit_u64(const uint64_t word) {
+			#if defined(_MSC_VER)
+				unsigned long index;
+				if (_BitScanForward64(&index, word))
+					return (int)index;
+				return -1;
+
+			#elif defined(__GNUC__) || defined(__clang__)
+				return __builtin_ctzll(word);
+
+			#else
+				for (int i = 0; i < 64; ++i)
+					if ((word >> i) & 1ULL)
+						return i;
+				return -1;
+			#endif
+			}
+		
+		int bit_get_first_free_slot() const {
+			for (int i = 0; i < 4; ++i) {
+				int r = find_first_set_bit_u64(userData[i]);
+				if (r >= 0)
+					return r + i*64;
+				}
+			return -1;
+			}
+			
+		uint8_t* bitmap_allocate_impl(uint8_t* base, const uint32_t blockSize, const uint32_t maxSlots) {
+			uint32_t freeSlotIdx = bit_get_first_free_slot();
+			if (freeSlotIdx >= maxSlots) return NULL; // silent fail alloc
+			if (bit_test(freeSlotIdx)) {
+				stt::error::bad_alloc(blockSize, "double alloc (internal bug)"); // should never be reached
+				return NULL;
+				}
+			bit_set(freeSlotIdx);
+			return &base[blockSize*freeSlotIdx];
+			}
+			
+		void bitmap_free_impl(uint8_t* ptr, uint8_t* base, const uint32_t blockSize, const uint32_t maxSlots) {
+			uint32_t slotIdx = (ptr - base)/blockSize;
+			if (slotIdx >= maxSlots) {
+				stt::error::bad_free(ptr, "free out of bounds");
+				return; // out of bounds
+				}
+			if (!bit_test(slotIdx)) {
+				stt::error::bad_free(ptr, "double free");
+				return; // double free
+				}
+			bit_clear(slotIdx);
+			}
+		}
+		
 	
 	template<unsigned int SIZE, pageTypeEnum ET>
 	union pageTemplate {
@@ -165,6 +233,24 @@ namespace stt {
 		static STT_CONSTEXPR__size_t capacity() { return SIZE - STT_PAGE_HEADER_SIZE;  }
 		static STT_CONSTEXPR__size_t storageSize() { return SIZE;  }
 		static STT_CONSTEXPR__pageTypeEnum getPageType() { return ET; }
+			
+		template <int BLOCK_SIZE>
+		uint8_t* bitmap_allocate() {
+			constexpr uint32_t maxSlots = capacity()/BLOCK_SIZE;
+			return ph.bitmap_allocate_impl(ptr(), BLOCK_SIZE, maxSlots < 256 ? maxSlots : 256);
+			}
+			
+		template <int BLOCK_SIZE>
+		void bitmap_free(const uint8_t* m_ptr, const uint32_t blockSize) {
+			constexpr uint32_t maxSlots = capacity()/BLOCK_SIZE;
+			return ph.bitmap_free_impl(m_ptr, ptr(), BLOCK_SIZE, maxSlots < 256 ? maxSlots : 256);
+			}
+			
+		inline bool bitmap_contains(const uint8_t* m_ptr) const {
+			uintptr_t p = ptr();
+			uintptr_t m = m_ptr;
+			return (m >= p) && (m < p + capacity());
+			}
 		};
 	
 	typedef pageTemplate<STT_PAGE_SIZE, pageTypeEnum::PAGE_TYPE_NORMAL> pageU;
