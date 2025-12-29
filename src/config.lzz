@@ -20,6 +20,8 @@
 	#define STT_STL_DEBUG_MEMORY 0
 #endif
 
+#define STT_STL_UNUSED(X) (void)(X);
+
 // Allocators
 // If set to zero move assignments from strings/vectors with different custom allocators are allowed
 // stt::vector a<T>(&someAlloc);

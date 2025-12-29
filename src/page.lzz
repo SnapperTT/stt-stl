@@ -144,12 +144,12 @@ namespace stt {
 			
 		inline uint8_t* toPayload() {
 			uint8_t* ptr = (uint8_t*) this;
-			return &ptr[STT_PAGE_HEADER_SIZE];
+			return ptr + STT_PAGE_HEADER_SIZE;
 			}
 		
 		inline static pageHeader* fromPayload(uint8_t* ptr) {
 			// Reverse operation of pageU::ptr(), takes a page's data pointer and returns the address of the header
-			return (pageHeader*) &ptr[-STT_PAGE_HEADER_SIZE];
+			return (pageHeader*) (ptr - STT_PAGE_HEADER_SIZE);
 			}
 		
 		////////////////////////////////////////////////////////////////

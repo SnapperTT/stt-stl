@@ -1,0 +1,187 @@
+#hdr
+#include "page.hh"
+
+struct pageU;
+struct jumboPageU;
+struct megaPageU;
+
+namespace stt {
+struct selfReleasingPageUWrapperConstants {
+	constexpr static uint8_t PTYPE_UNKNOWN = 0;
+	constexpr static uint8_t PTYPE_PAGE = 1;
+	constexpr static uint8_t PTYPE_JUMBO = 2;
+	constexpr static uint8_t PTYPE_MEGA = 3;
+	constexpr static uint8_t PTYPE_HEAP = 4;
+	
+	constexpr static uint64_t MAGIC = 0x73656C6652656C65ull; //selfRele, dec = 8161499841201972293
+	};
+} // namespace stt
+
+#end
+
+#src
+#end
+
+namespace stt {
+	
+struct selfReleasingPageUWrapper {
+	/// This is just a wrapper around a pointer to some allocation data
+	/// The intended use is for temporary data that last a few frames.
+	///
+	/// Works by either fetching a pageU/jumoPageU/megaPageU from global pool
+	/// if these are too small then heap allocate
+	/// minimum allocation size is 4k (sizeof(pageU))
+	/// maximum allocation size is 4gb (uint32_t max)
+	
+	union pageUnion {
+		stt::pageU * P;
+		stt::jumboPageU * J;
+		stt::megaPageU * M;
+		uint8_t* H;
+		};
+	pageUnion PU;
+	
+	// This class makes use of pageHeader::userData[..]
+	// Userdata layout:
+	// allocationInfo -> size of allocation block
+	// userdata[0] -> type
+	// userData[2] -> MAGIC
+	// userData[2] -> (unused)
+	// userData[3] -> (unused)
+		
+	inline selfReleasingPageUWrapper() {
+		PU.P = NULL;
+		static_assert(sizeof(selfReleasingPageUWrapper) <= 8);
+		}
+	
+	static selfReleasingPageUWrapper getFromDataPointer(const uint8_t* ptr) {
+		stt::pageHeader* ph = (stt::pageHeader*) (ptr - STT_PAGE_HEADER_SIZE);
+		selfReleasingPageUWrapper r;
+		r.assertMagic();
+		r.PU.P = (stt::pageU*) ph;
+		return r;
+		}
+		
+	inline stt::alloc_size_t getSize() const {
+		return PU.P->ph.allocationInfo;
+		}
+	
+	inline uint8_t getType() const {
+		return PU.P->ph.userData[0];
+		}
+	
+	inline void assertMagic() const {
+		STT_STL_ASSERT(PU.P->ph.userData[1] == selfReleasingPageUWrapperConstants::MAGIC, "magic value is incorrect, possible memory corruption");
+		}
+	
+	inline uint8_t* data() {
+		return PU.P->ptr();
+		}
+		
+	stt::alloc_size_t getCapacity() const {
+		switch (getType()) {
+			case selfReleasingPageUWrapperConstants::PTYPE_PAGE:
+				return PU.P->capacity();
+			case selfReleasingPageUWrapperConstants::PTYPE_JUMBO:
+				return PU.J->capacity();
+			case selfReleasingPageUWrapperConstants::PTYPE_MEGA:
+				return PU.M->capacity();
+			case selfReleasingPageUWrapperConstants::PTYPE_HEAP:
+				return PU.P->ph.allocationInfo;
+			}
+		return 0;
+		}
+	
+	uint8_t* alloc(const stt::alloc_size_t sz) {
+		STT_STL_ASSERT(!PU.P, "already allocated");
+		if (sz <= STT_PAGE_SIZE - STT_PAGE_HEADER_SIZE) {
+			PU.P = stt::ThreadSafePageAllocator::allocPage();
+			PU.P->ph.initToZero();
+			PU.P->ph.userData[0] = selfReleasingPageUWrapperConstants::PTYPE_PAGE;
+			PU.P->ph.userData[1] = selfReleasingPageUWrapperConstants::MAGIC;
+			PU.P->ph.userData[2] = 0;
+			PU.P->ph.userData[3] = 0;
+			}
+		else if (sz <= STT_JUMBO_PAGE_SIZE - STT_PAGE_HEADER_SIZE) {
+			PU.J = stt::ThreadSafePageAllocator::allocJumboPage();
+			PU.J->ph.initToZero();
+			PU.J->ph.userData[0] = selfReleasingPageUWrapperConstants::PTYPE_JUMBO;
+			PU.J->ph.userData[1] = selfReleasingPageUWrapperConstants::MAGIC;
+			PU.J->ph.userData[2] = 0;
+			PU.J->ph.userData[3] = 0;
+			}
+		else if (sz <= STT_MEGA_PAGE_SIZE - STT_PAGE_HEADER_SIZE) {
+			PU.M = stt::ThreadSafePageAllocator::allocMegaPage();
+			PU.M->ph.initToZero();
+			PU.M->ph.userData[0] = selfReleasingPageUWrapperConstants::PTYPE_MEGA;
+			PU.M->ph.userData[1] = selfReleasingPageUWrapperConstants::MAGIC;
+			PU.M->ph.userData[2] = 0;
+			PU.M->ph.userData[3] = 0;
+			}
+		else {
+			PU.H = (uint8_t*) stt_malloc(sz + STT_PAGE_HEADER_SIZE);
+			stt::pageHeader* ph = (stt::pageHeader*) PU.H;
+			ph->initToZero();
+			ph->allocationInfo = sz;
+			ph->userData[0] = selfReleasingPageUWrapperConstants::PTYPE_HEAP;
+			ph->userData[1] = selfReleasingPageUWrapperConstants::MAGIC;
+			ph->userData[2] = 0;
+			ph->userData[3] = 0;
+			}
+		return data();
+		}
+		
+	bool try_realloc(const stt::alloc_size_t newSz) {
+		if (getCapacity() < newSz)
+			return false;
+		return true;
+		}
+	
+	void free() {
+		switch (getType()) {
+			case selfReleasingPageUWrapperConstants::PTYPE_PAGE:
+				stt::ThreadSafePageAllocator::freePage(PU.P);
+				break;
+			case selfReleasingPageUWrapperConstants::PTYPE_JUMBO:
+				stt::ThreadSafePageAllocator::freeJumboPage(PU.J);
+				break;
+			case selfReleasingPageUWrapperConstants::PTYPE_MEGA:
+				stt::ThreadSafePageAllocator::freeMegaPage(PU.M);
+				break;
+			case selfReleasingPageUWrapperConstants::PTYPE_HEAP:
+				stt_free(PU.H);
+			}
+		PU.P = NULL;
+		}
+	};
+	
+	
+struct mtAutoPageAllocator : public stt::allocatorI {
+	// This is a static allocator with no internal state
+	static mtAutoPageAllocator I;
+	
+	uint8_t* allocate(const stt::alloc_size_t size__NOEXCEPT) {
+		// get a selfReleasingPageUWrapper from the page pool
+		selfReleasingPageUWrapper r;
+		return r.alloc(size);
+		}
+	
+	void deallocate(uint8_t* ptr, const stt::alloc_size_t size__NOEXCEPT) {
+		selfReleasingPageUWrapper r = selfReleasingPageUWrapper::getFromDataPointer(ptr);
+		r.free();
+		}
+	
+	bool try_realloc(uint8_t * ptr, const stt::alloc_size_t oldSize, const stt::alloc_size_t newSize__NOEXCEPT) {
+		selfReleasingPageUWrapper r = selfReleasingPageUWrapper::getFromDataPointer(ptr);
+		return r.try_realloc(newSize);
+		}
+		
+	static void staticFreeFromPtr(void* _ptr, void* _userData) {
+		// For bgfx release callback. _userData is the pointer created with mtAutoPageAllocator::allocate()
+		STT_STL_UNUSED(_ptr);
+		selfReleasingPageUWrapper r = selfReleasingPageUWrapper::getFromDataPointer((uint8_t*) _userData);
+		r.free();
+		}
+	};
+
+} // namespace stt
