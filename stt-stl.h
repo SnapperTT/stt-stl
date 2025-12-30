@@ -231,6 +231,10 @@ namespace stt
 }
 namespace stt
 {
+  uint32_t get_num_bits_set_u64 (uint64_t const v);
+}
+namespace stt
+{
   template <typename T>
   void objectFillRange (T * start, T * end);
 }
@@ -374,6 +378,27 @@ namespace stt
 				if ((word >> i) & 1ULL)
 					return i;
 			return -1;
+		#endif
+		}
+}
+namespace stt
+{
+  LZZ_INLINE uint32_t get_num_bits_set_u64 (uint64_t const v)
+                                                               {
+		#if __cpp_lib_bitops
+			return std::popcount(v);
+		#elif defined(_MSC_VER)
+			return __popcnt64(v);
+		#elif defined(__GNUC__) || defined(__clang__)
+			return static_cast<uint32_t>(__builtin_popcountll(v));
+		#else
+			// Portable fallback
+			uint32_t count = 0;
+			while (v) {
+				v &= v - 1;
+				++count;
+			}
+			return count;
 		#endif
 		}
 }
@@ -631,6 +656,7 @@ namespace stt
     bump_allocator ();
     void bind (uint8_t * buffer, alloc_size_t bufferSize);
     uint8_t * allocate (alloc_size_t const size) noexcept LZZ_OVERRIDE;
+    bool contains (uint8_t const * ptr);
     void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept LZZ_OVERRIDE;
     bool try_realloc (uint8_t * ptr, alloc_size_t const oldSize, alloc_size_t const newSize) noexcept LZZ_OVERRIDE;
   };
@@ -673,6 +699,16 @@ namespace stt
   LZZ_INLINE bump_allocator::bump_allocator ()
     : mBuff (NULL), mSize (0), mSeek (0), fallback (NULL)
                                                                                           {}
+}
+namespace stt
+{
+  LZZ_INLINE bool bump_allocator::contains (uint8_t const * ptr)
+                                                         {
+			uintptr_t ptrT = (uintptr_t) ptr;
+			uintptr_t begin = (uintptr_t) mBuff;
+			uintptr_t end = begin + mSize;
+			return  (ptrT >= begin && ptrT < end);
+			}
 }
 namespace stt
 {
@@ -3565,6 +3601,8 @@ namespace stt
     mt_arena_bitmap_allocator ();
     ~ mt_arena_bitmap_allocator ();
     void bind (uint32_t const _poolSz, uint32_t const _blockSz, uint8_t * _pool);
+    bool contains (uint8_t const * ptr) const;
+    uint32_t getNumUsedBlocks () const;
     uint8_t * allocate (alloc_size_t const size) noexcept;
     bool try_realloc (uint8_t * ptr, alloc_size_t const oldSize, alloc_size_t const newSize) noexcept;
     void deallocate (uint8_t * ptr, alloc_size_t const size) noexcept;
@@ -3578,6 +3616,23 @@ namespace stt
     mt_auto_arena_bitmap_allocator (uint32_t const _poolSz, uint32_t const _blockSz);
     ~ mt_auto_arena_bitmap_allocator ();
   };
+}
+namespace stt
+{
+  LZZ_INLINE bool mt_arena_bitmap_allocator::contains (uint8_t const * ptr) const
+                                                       {
+		uintptr_t ptrT = (uintptr_t) ptr;
+		uintptr_t begin = (uintptr_t) pool;
+		uintptr_t end = begin + poolSz;
+		return  (ptrT >= begin && ptrT < end);
+		}
+}
+namespace stt
+{
+  LZZ_INLINE uint32_t mt_arena_bitmap_allocator::getNumUsedBlocks () const
+                                                 {
+		return stt::get_num_bits_set_u64(bitmapMask.load(std::memory_order_relaxed));
+		}
 }
 namespace stt
 {
@@ -3660,7 +3715,7 @@ namespace stt
         uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
         uintptr_t base = reinterpret_cast<uintptr_t>(pool);
         
-		if (p < base || p > base + poolSz) {
+		if (p < base || p >= base + poolSz) {
 			// Does not belong to arena
 			if (fallback)
 				return fallback->deallocate(ptr, size);
