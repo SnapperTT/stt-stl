@@ -139,6 +139,16 @@ using small_vector8 = stt::small_vector<T, 8, uint16_t>; // small_vector that st
 // - (in C++ static initialisation order is not defined)
 ```
 
+Builtin allocators:
+
+* `allocatorI` - pure virtual allocator base class.
+* `crt_allocator` - wraps malloc/free. Static, no internal state, can fetch an instance with `crt_allocator::getStaticCrtAllocator()`.
+* `null_view_allocator` - allocator that does not allocate. This is used to internally mark containers (stt::vector/string) as interned.
+* `bump_allocator` - you give this an arena and it does it thing. Set the arena with `bind(...)`. Supports a fallback allocator for when the arena is full
+* `auto_bump_allocator<SIZE>` - (eg `auto_bump_allocator4096`) - a bump_allocator that contains a stack based arena. Useful for, eg, string or vector manipulations on the stack
+* `mt_arena_bitmap_allocator` - Thread safe bitmap allocator for a fixed sized arena. Uses an atomic uint64_t as the bitmap. Set the arena with `bind(...)`. Default `STT_STL_DEFAULT_ALLOCATOR` (heap) fallback
+* `mt_auto_arena_bitmap_allocator` - Extension of `mt_arena_bitmap_allocator` but uses the default allocator (`STT_STL_DEFAULT_ALLOCATOR`) to automatically create and destroy the arena
+
 ## Config
 See config.lzz
 

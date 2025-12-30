@@ -59,7 +59,6 @@ namespace stt
     bool bit_test (uint32_t const index) const;
     void bit_set (uint32_t const index);
     void bit_clear (uint32_t const i);
-    static int find_first_set_bit_u64 (uint64_t const word);
     int bit_get_first_free_slot () const;
     uint8_t * bitmap_allocate_impl (uint8_t * base, uint32_t const blockSize, uint32_t const maxSlots);
     void bitmap_free_impl (uint8_t * ptr, uint8_t * base, uint32_t const blockSize, uint32_t const maxSlots);
@@ -150,27 +149,6 @@ namespace stt
   LZZ_INLINE void pageHeader::bit_clear (uint32_t const i)
                                                         {
 			userData[i >> 6] &= ~(1ULL << (i & 63));
-			}
-}
-namespace stt
-{
-  LZZ_INLINE int pageHeader::find_first_set_bit_u64 (uint64_t const word)
-                                                                              {
-			#if defined(_MSC_VER)
-				unsigned long index;
-				if (_BitScanForward64(&index, word))
-					return (int)index;
-				return -1;
-
-			#elif defined(__GNUC__) || defined(__clang__)
-				return __builtin_ctzll(word);
-
-			#else
-				for (int i = 0; i < 64; ++i)
-					if ((word >> i) & 1ULL)
-						return i;
-				return -1;
-			#endif
 			}
 }
 namespace stt
@@ -369,7 +347,7 @@ namespace stt
   int pageHeader::bit_get_first_free_slot () const
                                                     {
 			for (int i = 0; i < 4; ++i) {
-				int r = find_first_set_bit_u64(userData[i]);
+				int r = stt::find_first_set_bit_u64(userData[i]);
 				if (r >= 0)
 					return r + i*64;
 				}
@@ -3137,9 +3115,9 @@ namespace stt
 }
 namespace stt
 {
-  struct mtAutoPageAllocator : public stt::allocatorI
+  struct AutoPageAllocator : public stt::allocatorI
   {
-    static mtAutoPageAllocator I;
+    static AutoPageAllocator I;
     uint8_t * allocate (stt::alloc_size_t const size) noexcept;
     void deallocate (uint8_t * ptr, stt::alloc_size_t const size) noexcept;
     bool try_realloc (uint8_t * ptr, stt::alloc_size_t const oldSize, stt::alloc_size_t const newSize) noexcept;
@@ -3297,11 +3275,11 @@ namespace stt
 }
 namespace stt
 {
-  mtAutoPageAllocator mtAutoPageAllocator::I;
+  AutoPageAllocator AutoPageAllocator::I;
 }
 namespace stt
 {
-  uint8_t * mtAutoPageAllocator::allocate (stt::alloc_size_t const size) noexcept
+  uint8_t * AutoPageAllocator::allocate (stt::alloc_size_t const size) noexcept
                                                                   {
 		// get a selfReleasingPageUWrapper from the page pool
 		selfReleasingPageUWrapper r;
@@ -3310,7 +3288,7 @@ namespace stt
 }
 namespace stt
 {
-  void mtAutoPageAllocator::deallocate (uint8_t * ptr, stt::alloc_size_t const size) noexcept
+  void AutoPageAllocator::deallocate (uint8_t * ptr, stt::alloc_size_t const size) noexcept
                                                                               {
 		selfReleasingPageUWrapper r = selfReleasingPageUWrapper::getFromDataPointer(ptr);
 		r.free();
@@ -3318,7 +3296,7 @@ namespace stt
 }
 namespace stt
 {
-  bool mtAutoPageAllocator::try_realloc (uint8_t * ptr, stt::alloc_size_t const oldSize, stt::alloc_size_t const newSize) noexcept
+  bool AutoPageAllocator::try_realloc (uint8_t * ptr, stt::alloc_size_t const oldSize, stt::alloc_size_t const newSize) noexcept
                                                                                                                     {
 		selfReleasingPageUWrapper r = selfReleasingPageUWrapper::getFromDataPointer(ptr);
 		return r.try_realloc(newSize);
@@ -3326,7 +3304,7 @@ namespace stt
 }
 namespace stt
 {
-  void mtAutoPageAllocator::staticFreeFromPtr (void * _ptr, void * _userData)
+  void AutoPageAllocator::staticFreeFromPtr (void * _ptr, void * _userData)
                                                                    {
 		// For bgfx release callback. _userData is the pointer created with mtAutoPageAllocator::allocate()
 		STT_STL_UNUSED(_ptr);
