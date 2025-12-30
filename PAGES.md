@@ -25,9 +25,9 @@ If an allocation is permanent than a fancy allocation system is not needed - jus
 
 
 ## Pages
-I supply two kinds of pages with this library - regular (about 4k in size) and jumbo (64k). The reason is that I want to force you to use fixed size blocks of a known size and live with discontigious data. 
+I supply three kinds of pages with this library - regular (about 4k in size), jumbo (64k) and mega(2M). The reason is that I want to force you to use fixed size blocks of a known size. 
 
-You can change the size of the pages by defining the `STT_PAGE_SIZE` and `STT_JUMBO_PAGE_SIZE` macros.
+You can change the size of the pages by defining the `STT_PAGE_SIZE`, `STT_JUMBO_PAGE_SIZE` and `STT_MEGA_PAGE_SIZE` macros.
 
 
 ## Allocating 
@@ -37,6 +37,22 @@ You can allocate (fetch from the pool) a page by calling `ThreadSafePageAllocato
 
 *VERY IMPORTANT* - when you get a page from the allocator it is unitialzed data - this includes it's own header! Be sure to call `mPage->initHeader()` with your freshly allocated page!
 A `page` is a union of `uint8_t[SIZE]` and a `pageHeader` class. When you allocate the a page the header is full of uninitialised garbage, this is so that you can initialise when you actually use it to prevent unnessecary access from system memory. Also when you free the page object you must make sure that the `pageHeader::next` pointer is not garbage (`initHeader` will set this to zero)
+
+## Automatic Allocation
+I've provided an allocator `AutoPageAllocator` (file: `self_releasing_page.lzz`) that can create a page object (either a Page, JumboPage or MegaPage) or a heap allocation for really big allocations, and wraps it in a uint8_t* pointer. This is good for storing data with a medium lifetime. This allocator has no internal state and is thread safe - internally it wraps `stt::ThreadSafePageAllocator`.
+
+```
+// Using directly
+uint8_t* mem = stt::AutoPageAllocator::I.allocate(size_bytes);
+bool success = stt::AutoPageAllocator::I.try_realloc(mem, size_bytes, new_size_bytes);
+stt::AutoPageAllocator::I.free(mem);
+
+// Using with containers
+stt::vector32 vec;
+vec.setAllocator(&stt::AutoPageAllocator::I);
+```
+
+How it works is that when you call `allocate(..)`, a Page is pulled from ThreadSafePageAllocator, various metadata is set and then `Page->ptr()` is returned. When you call `try_realloc(...)` or `free(...), the pointer to the Page is reconstructed and we can act on it accordingly. For really large allocations (bigger than Mega) then a heap buffer with enough room for a `pageHeader` at the start.
 
 
 ## Per Thread Tuning
@@ -68,8 +84,8 @@ Finally you can change the (minimum) batch size for the `BackendPagePool` by the
 
 
 ## Containers
-* pageQueue<T> - Like a `std::vector` but discontigious and does not allow random access. You can `push_back` and use ranged itteration to access. 
-* pageQueueBumpStorage<P> - A basic bump allocator, designed to be a bucket for objects with the same or similar lifetime. (This is perfect for interned strings)! P here is the page type (regular or jumbo). This also has an overflow mechanisim to store objects that are individually too big to fit in the allocator (these will use the STT_STL_DEFAULT_ALLOCATOR) 
+* `pageQueue<T>` - Like a `std::vector` but discontigious and does not allow random access. You can `push_back` and use ranged itteration to access. 
+* `pageQueueBumpStorage<P>` - A basic bump allocator, designed to be a bucket for objects with the same or similar lifetime. (This is perfect for interned strings)! P here is the page type (regular or jumbo). This also has an overflow mechanisim to store objects that are individually too big to fit in the allocator (these will use the STT_STL_DEFAULT_ALLOCATOR) 
 
 
 ## Debugging

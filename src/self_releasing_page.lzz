@@ -156,9 +156,9 @@ struct selfReleasingPageUWrapper {
 	};
 	
 	
-struct mtAutoPageAllocator : public stt::allocatorI {
+struct AutoPageAllocator : public stt::allocatorI {
 	// This is a static allocator with no internal state
-	static mtAutoPageAllocator I;
+	static AutoPageAllocator I;
 	
 	uint8_t* allocate(const stt::alloc_size_t size__NOEXCEPT) {
 		// get a selfReleasingPageUWrapper from the page pool
