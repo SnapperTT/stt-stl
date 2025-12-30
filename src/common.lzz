@@ -130,7 +130,25 @@ namespace stt {
 			return -1;
 		#endif
 		}
-		
+	
+	inline uint32_t get_num_bits_set_u64(const uint64_t v) {
+		#if __cpp_lib_bitops
+			return std::popcount(v);
+		#elif defined(_MSC_VER)
+			return __popcnt64(v);
+		#elif defined(__GNUC__) || defined(__clang__)
+			return static_cast<uint32_t>(__builtin_popcountll(v));
+		#else
+			// Portable fallback
+			uint32_t count = 0;
+			while (v) {
+				v &= v - 1;
+				++count;
+			}
+			return count;
+		#endif
+		}
+	
 	template<typename T>
 	inline void objectFillRange(T* start, T* end) {
 		for (T* tPtr = start; tPtr != end; tPtr++)

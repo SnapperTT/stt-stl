@@ -94,7 +94,14 @@ namespace stt {
 				return r;
 				}
 			}
-			
+		
+		inline bool contains(const uint8_t* ptr) {
+			uintptr_t ptrT = (uintptr_t) ptr;
+			uintptr_t begin = (uintptr_t) mBuff;
+			uintptr_t end = begin + mSize;
+			return  (ptrT >= begin && ptrT < end);
+			}
+		
 		void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT_OVERRIDE) {
 			//stt_dbg_log ("sst free %p, addr: %p, sz %i, [%i/%i]", this, ptr, int(size), int(mSize), int(mSeek));
 			uintptr_t ptrT = (uintptr_t) ptr;
