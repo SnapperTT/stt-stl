@@ -1375,7 +1375,7 @@ namespace stt
 				d.sso[N-1] = 0;
 			else
 				local_size_ref() = 0;
-				}
+			}
 }
 namespace stt
 {
@@ -1457,7 +1457,7 @@ namespace stt
 				d.store.mAllocator = alloc;
 				}
 			else {
-				STT_STL_ASSERT(d.store.ptr == NULL, "setting an allocator when non-sso data is already allocated is undefined behaviour");
+				STT_STL_ASSERT(d.store.ptr == NULL, "setting an allocator when non-sso data is already allocated is undefined behaviour (are you double assigning an allocator?)");
 				d.store.mAllocator = alloc;
 				}
 			}
