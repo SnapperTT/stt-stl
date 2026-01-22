@@ -3180,8 +3180,8 @@ namespace stt
                                                                                 {
 		stt::pageHeader* ph = (stt::pageHeader*) (ptr - STT_PAGE_HEADER_SIZE);
 		selfReleasingPageUWrapper r;
-		r.assertMagic();
 		r.PU.P = (stt::pageU*) ph;
+		r.assertMagic();
 		return r;
 		}
 }
