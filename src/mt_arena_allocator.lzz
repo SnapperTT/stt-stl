@@ -1,0 +1,110 @@
+#hdr
+#include <atomic>
+#end
+
+#src
+
+#end
+
+namespace stt {
+	
+class mt_arena_bitmap_allocator : public allocatorI {
+public:
+	/// Purpose - a thread safe fixed size bitmap allocator that uses an arena
+	/// WARNING: This will throw an assert if the allocation is greater than the block size
+	uint8_t* pool;
+	uint32_t poolSz;
+	uint32_t blockSz;
+	std::atomic<uint64_t> bitmapMask;
+	allocatorI* fallback;
+
+	mt_arena_bitmap_allocator() {
+		poolSz = 0;
+		blockSz = 0;
+		fallback = STT_STL_DEFAULT_ALLOCATOR;
+		bitmapMask = 0;
+		}
+		
+	~mt_arena_bitmap_allocator() {}
+		
+	void bind(const uint32_t _poolSz, const uint32_t _blockSz, uint8_t* _pool) {
+		poolSz = _poolSz;
+		blockSz = _blockSz;
+		pool = _pool;
+		}
+	
+	inline bool contains(const uint8_t* ptr) const {
+		uintptr_t ptrT = (uintptr_t) ptr;
+		uintptr_t begin = (uintptr_t) pool;
+		uintptr_t end = begin + poolSz;
+		return  (ptrT >= begin && ptrT < end);
+		}
+	
+	inline uint32_t getNumUsedBlocks() const {
+		return stt::get_num_bits_set_u64(bitmapMask.load(std::memory_order_relaxed));
+		}
+			
+	uint8_t* allocate(const alloc_size_t size__NOEXCEPT) {
+		STT_STL_ASSERT(size <= blockSz, "requested allocation exceeds block size");
+		
+		uint64_t mask = bitmapMask.load(std::memory_order_relaxed);
+		constexpr uint64_t fullMask = uint64_t(-1);
+
+		while (true) {
+			// All blocks used → fallback to heap
+			if (mask == fullMask) {
+				if (fallback)
+					return fallback->allocate(size);
+				return NULL; // bad alloc
+				}
+
+			// Find first zero bit
+			uint64_t freeBit = (~mask) & -~mask; // isolate lowest 0-bit
+			uint64_t newMask = mask | freeBit;
+
+			// Attempt to claim it
+			if (bitmapMask.compare_exchange_weak(mask, newMask, std::memory_order_acquire, std::memory_order_relaxed)) {
+				uint32_t index = find_first_set_bit_u64(freeBit);
+				return pool + (index * blockSz);
+				}
+			}
+		}
+		
+	inline bool try_realloc(uint8_t * ptr, const alloc_size_t oldSize, const alloc_size_t newSize__NOEXCEPT) {
+		return (newSize <= blockSz);
+		}
+	
+	void deallocate(uint8_t* ptr, const alloc_size_t size__NOEXCEPT) {
+        uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
+        uintptr_t base = reinterpret_cast<uintptr_t>(pool);
+        
+		if (p < base || p >= base + poolSz) {
+			// Does not belong to arena
+			if (fallback)
+				return fallback->deallocate(ptr, size);
+			STT_STL_ABORT();
+			}
+
+		uint32_t offset = p - base;
+		uint32_t index = offset / blockSz;
+		
+		uint64_t bit = uint64_t(1) << index;
+		bitmapMask.fetch_and(~bit, std::memory_order_release);
+		}
+	};
+
+class mt_auto_arena_bitmap_allocator : public mt_arena_bitmap_allocator {
+public:
+/// Automatically creates an arena with the default allocator and cleans up on destruction
+	mt_auto_arena_bitmap_allocator (const uint32_t _poolSz, const uint32_t _blockSz) {
+		uint8_t* _pool = STT_STL_DEFAULT_ALLOCATOR->allocate(_poolSz);
+		bind(_poolSz, _blockSz, _pool);
+		}
+		
+	~mt_auto_arena_bitmap_allocator() {
+		STT_STL_DEFAULT_ALLOCATOR->deallocate(pool, poolSz);
+		}
+	}
+} // namespace stt
+
+
