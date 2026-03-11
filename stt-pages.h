@@ -900,8 +900,8 @@ namespace stt
 			return;
 		#endif
 		
-		pageHeader* h = atomicTake();
 		mMutex.lock();
+		pageHeader* h = atomicTake();
 		
 		#if STT_STL_DEBUG_PAGE
 		{
@@ -910,13 +910,19 @@ namespace stt
 			stt_dbg_log ("BackendPagePool: bulkFetch in, request: %i,  allocFreeList len: %i, allocFreeList len: %i, total free: %i, total system allocated: %i\n", nPages, l1, l2, l1 + l2, stt::dbg_getNPagesAllocated_forward());
 		}
 		#endif
-			
+		
+		int hPath = 0; // used for debugging
 		if (h) {
-			if (allocFreeList)
+			if (allocFreeList) {
 				allocFreeList->appendList(h);
-			else
-				allocFreeList = h;
+				hPath = 1;
+				}
+			else {
+				allocFreeList = h; // what is the value of h->cachedWorkingEnd????
+				hPath = 2;
+				}
 			}
+		STT_STL_UNUSED(hPath);
 		
 		pageHeader* w = allocFreeList;
 		uint32_t i = 0;
