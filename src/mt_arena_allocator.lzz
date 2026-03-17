@@ -96,7 +96,7 @@ public:
 class mt_auto_arena_bitmap_allocator : public mt_arena_bitmap_allocator {
 public:
 /// Automatically creates an arena with the default allocator and cleans up on destruction
-	mt_auto_arena_bitmap_allocator (const uint32_t _poolSz, const uint32_t _blockSz) {
+	mt_auto_arena_bitmap_allocator (const alloc_size_t _poolSz, const uint32_t _blockSz) {
 		uint8_t* _pool = STT_STL_DEFAULT_ALLOCATOR->allocate(_poolSz);
 		bind(_poolSz, _blockSz, _pool);
 		}

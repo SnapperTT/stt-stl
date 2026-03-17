@@ -3616,7 +3616,7 @@ namespace stt
   class mt_auto_arena_bitmap_allocator : public mt_arena_bitmap_allocator
   {
   public:
-    mt_auto_arena_bitmap_allocator (uint32_t const _poolSz, uint32_t const _blockSz);
+    mt_auto_arena_bitmap_allocator (alloc_size_t const _poolSz, uint32_t const _blockSz);
     ~ mt_auto_arena_bitmap_allocator ();
   };
 }
@@ -3734,8 +3734,8 @@ namespace stt
 }
 namespace stt
 {
-  mt_auto_arena_bitmap_allocator::mt_auto_arena_bitmap_allocator (uint32_t const _poolSz, uint32_t const _blockSz)
-                                                                                         {
+  mt_auto_arena_bitmap_allocator::mt_auto_arena_bitmap_allocator (alloc_size_t const _poolSz, uint32_t const _blockSz)
+                                                                                             {
 		uint8_t* _pool = STT_STL_DEFAULT_ALLOCATOR->allocate(_poolSz);
 		bind(_poolSz, _blockSz, _pool);
 		}
