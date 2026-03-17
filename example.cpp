@@ -47,8 +47,8 @@ namespace stt {
 #define LZZ_INLINE inline
 int main (int argc, char * * argv)
                                   {
-	//printf("Hello\n");
-			
+	printf("Hello %i\n", stt::vector24<int>::ssoCapacity());
+	
 	#if 1
 	for (int testId = 0; testId < 64; ++testId) {
 		ankerl::nanobench::Bench b;

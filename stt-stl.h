@@ -2157,8 +2157,11 @@ namespace stt {
 				writeNullTerminator((uint8_t*) sso.data());
 			}
 		
+		// Sso lookup functions
 		inline bool isUsingSso()  const { return sso.useSso(); }
 		inline bool isUsingHeap() const { return !sso.useSso(); }
+		inline static constexpr storage_size_t ssoCapacity()      { return decltype(sso)::local_capcity() / sizeof(T); } // Returns how many T can be packed into the sso
+		inline static constexpr storage_size_t ssoCapacityBytes() { return decltype(sso)::local_capcity(); } // Returns how many bytes can be stored in sso
 		
 		void push_back(const T& t) {
 			constexpr storage_size_t stride = sizeof(T);

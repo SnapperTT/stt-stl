@@ -120,7 +120,7 @@ namespace stt {
 		inline static STT_CONSTEXPR__storage_size_t max_size() { return ~(1 << (sizeof(SSO_SIZE_T)*8-1)); }
 		
 		inline static STT_CONSTEXPR__storage_size_t element_size() { return isPod() ? 1 : sizeof(T); }
-		inline static STT_CONSTEXPR__SSO_SIZE_T local_capcity() { return N-sizeof(SSO_SIZE_T)-null_termination_padding(); }	 // Returns sso capacity (in bytes
+		inline static STT_CONSTEXPR__SSO_SIZE_T local_capcity() { return N-sizeof(SSO_SIZE_T)-null_termination_padding(); }	 // Returns sso capacity (in bytes)
 		inline static STT_CONSTEXPR__bool isAlwaysStore() { return IS_ALWAYS_STORE; } //sizeof(T) > local_capcity(); -> doesn't work as T is aliased to sso_pod_tag
 		
 		// Aliases for sso_size variable
