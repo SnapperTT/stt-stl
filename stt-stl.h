@@ -1854,6 +1854,39 @@ public:
 	inline const_iterator end()   const noexcept { return const_iterator(data() + size()); };
 	inline iterator begin() noexcept { return iterator(data()); }
 	inline iterator end()   noexcept { return iterator(data() + size()); }
+	
+	inline iterator erase(iterator pos) noexcept {
+		iterator next = pos + 1;
+		if constexpr (requires_destroy_on_resize<T>::value)
+			pos->~T();
+		
+		// shift left
+		for (iterator it = pos; next != end(); ++it, ++next)
+			*it = std::move(*next);
+
+		--_size;
+		return pos;
+		}
+
+	inline iterator erase(iterator first, iterator last) noexcept {
+		if (first == last)
+			return first;
+
+		iterator write = first;
+		iterator read  = last;
+
+		if constexpr (requires_destroy_on_resize<T>::value) {
+			for (iterator it = first; it != last; ++it)
+				it->~T();
+			}
+
+		// shift left
+		while (read != end())
+			*write++ = std::move(*read++);
+
+		_size -= (last - first);
+		return first;
+		}
 	};
 }
 #define LZZ_INLINE inline
