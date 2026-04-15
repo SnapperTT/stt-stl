@@ -2215,6 +2215,17 @@ namespace stt {
 			writeNullTerminator(ptr+1);
 			}
 			
+		template<typename... Args>
+		T& emplace_back(Args&&... args) {
+			constexpr storage_size_t stride = sizeof(T);
+			uint8_t* ptr = sso.reserve(sso.size() + stride, stride);
+
+			T* obj = new (ptr) T(std::forward<Args>(args)...);
+
+			writeNullTerminator(ptr+1);
+			return *obj;
+			}
+			
 		void pop_back() {
 			const storage_size_t sz = size();
 			if (sz)
