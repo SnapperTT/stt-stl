@@ -2385,7 +2385,7 @@ public:
 				// if not last element then shift back
 				iterator iend = end();
 				if (where < end() - 1)
-					stt_memmove((uint8_t*) where, (uint8_t*) (where+1), (iend - where)*sizeof(T));
+					stt_memmove((uint8_t*) where, (uint8_t*) (where+1), (iend - where - 1)*sizeof(T));
 				
 				sso.resize_impl(sso.size()-sizeof(T));
 				if constexpr (isString()) writeNullTerminator((uint8_t*) end());
